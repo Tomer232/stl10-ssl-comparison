@@ -5,6 +5,22 @@ description: Run training, embedding extraction, or any GPU work for this projec
 
 # Running GPU work on bguserver
 
+## First: are you already on the server?
+
+This skill drives the server **from Tomer's laptop**. If you are running *on*
+`lab-server` itself, every `ssh bguserver` below would be the machine connecting to
+itself. Check before you do anything:
+
+```bash
+uname -s    # Linux + hostname lab-server  ->  you are ON the server
+```
+
+**If you are on the server, stop and follow `RUNBOOK.md` in the repo instead.** It has
+the clone location, `scripts/bootstrap_server.sh`, and the stage order. Come back here
+only when you are driving from the laptop.
+
+---
+
 The laptop has no CUDA GPU (Intel Iris Xe). Every GPU job runs on the lab server. You
 cannot run these commands yourself in one shot — the SSH connection may prompt for a
 password, and the box is shared. Read "Ground rules" before doing anything.
@@ -18,7 +34,7 @@ password, and the box is shared. Read "Ground rules" before doing anything.
 | GPU | 1× RTX 5090, 32 GB VRAM, driver 580.126.09, CUDA 13.0. Blackwell/sm_120 → **cu128 is the minimum** |
 | CPU / RAM | Intel Core Ultra 7 265K, 20 cores, 125 GiB RAM |
 | Python | `python3` = 3.12.3. **There is no `python` binary** — anything hardcoding `python` breaks |
-| Project dir | `/home/labadmin/lab/Tomer_Karmazin/` |
+| Project dir | `/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/` |
 | Multiplexer | **none** — no tmux, no screen |
 | Scheduler | **none** — no Slurm, free-for-all on the GPU |
 
@@ -41,12 +57,14 @@ Our venv and our project dir only.
 
 ## Disk — read this every time
 
-The server has **one volume, and it was 99% full (~13 GB free)** when last surveyed.
-There is no `/data`, no `/scratch`, no second disk.
+The server has **one volume**. There is no `/data`, no `/scratch`, no second disk, and
+no quotas. It was 99% full when first surveyed; Tomer freed roughly 100 GB on
+2026-08-04, but that headroom is shared with the rest of the lab and can vanish without
+warning.
 
 Rough budget: a fresh venv with `torch+cu128` is ~4 GB, STL-10 extracted is ~2.5 GB (plus
-the ~2.5 GB tarball, which should be deleted right after extraction). That is most of the
-headroom gone before a single checkpoint is written.
+the ~2.5 GB tarball, which `bootstrap_server.sh` deletes right after extraction), and the
+checkpoints and embedding caches accumulate across the beta grid and the seed loop.
 
 Preflight, every session:
 
@@ -54,7 +72,7 @@ Preflight, every session:
 ssh bguserver 'df -h / | tail -1'
 ```
 
-If free space is under ~15 GB, **say so and stop**. Do not start a download, a `pip
+If free space is under ~20 GB, **say so and stop**. Do not start a download, a `pip
 install`, or a training run. A runaway job that fills `/` takes down the whole lab's box,
 and there are no quotas to stop it. Freeing space is Tomer's call to make with the lab —
 never delete other people's files to make room.
@@ -90,59 +108,45 @@ then add `IdentityFile ~/.ssh/bguserver_tomer` to the `Host bguserver` block in
 `~/.ssh/config`. The shared `authorized_keys` already holds one key (`[REDACTED]`); this
 appends a second, it does not replace anything.
 
-### The project venv
+### Clone and bootstrap
 
-Ours alone — never install into `hri_env` or `rrnlp_env`.
-
-```bash
-ssh bguserver 'python3 -m venv ~/lab/Tomer_Karmazin/.venv && \
-  ~/lab/Tomer_Karmazin/.venv/bin/pip install --upgrade pip'
-ssh bguserver '~/lab/Tomer_Karmazin/.venv/bin/pip install \
-  --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0'
-ssh bguserver '~/lab/Tomer_Karmazin/.venv/bin/pip install numpy matplotlib'
-```
-
-`torch 2.11.0+cu128` is the version already proven working against this GPU in `hri_env`.
-Do not install `sklearn` or `scipy` — build-from-0 forbids them, and `requirements.txt`
-omits them deliberately.
-
-Verify:
+The repo carries its own setup script, so this is two commands rather than a checklist.
+`PROJECT` below is the canonical location — everything the project writes stays inside
+Tomer's own folder on this shared account.
 
 ```bash
-ssh bguserver '~/lab/Tomer_Karmazin/.venv/bin/python -c \
-  "import torch;print(torch.__version__, torch.version.cuda, torch.cuda.is_available(), torch.cuda.get_device_name(0))"'
+PROJECT=~/lab/Tomer_Karmazin/stl10-ssl-comparison
+
+ssh bguserver "mkdir -p ~/lab/Tomer_Karmazin && cd ~/lab/Tomer_Karmazin && \
+  git clone https://github.com/Tomer232/stl10-ssl-comparison.git"
+
+ssh bguserver "cd $PROJECT && bash scripts/bootstrap_server.sh"
 ```
 
-Expect `2.11.0+cu128 12.8 True NVIDIA GeForce RTX 5090`.
+`bootstrap_server.sh` is idempotent and trains nothing. It checks disk and the GPU, warns
+about idle-suspend, sets a repo-local git identity (the account's global identity belongs
+to another lab member), builds `.venv` with `torch==2.11.0+cu128` — never touching
+`hri_env` or `rrnlp_env` — downloads and extracts STL-10, builds the splits and
+normalization constants, and finishes by running the smoke test and the build-from-0 hook.
 
-### Git identity on the server
+`bash scripts/bootstrap_server.sh --check` re-verifies without changing anything.
 
-The server's global git identity is **Yuval Zohar's** (`yuvalzohar12@gmail.com`, shared
-account). Set a per-repo identity immediately after cloning, or commits made there will be
-attributed to him:
-
-```bash
-ssh bguserver 'cd ~/lab/Tomer_Karmazin/final_project && \
-  git config user.name "Tomer Karmazin" && git config user.email "tomer@jeepsea.co.il"'
-```
+If the smoke test fails, **do not launch training.**
 
 ## Getting code across
 
-The laptop is the source of truth. The server holds a checkout that we only ever pull into.
+The laptop is the source of truth; the server only ever pulls.
 
 ```bash
-# laptop: commit and push first
-git push
-
-# server: pull
-ssh bguserver 'cd ~/lab/Tomer_Karmazin/final_project && git pull --ff-only'
+git push                                              # laptop
+ssh bguserver "cd $PROJECT && git pull --ff-only"     # server
 ```
 
 For fast iteration on uncommitted work, `rsync` (installed on both ends) is fine:
 
 ```bash
-rsync -avz --exclude '.git' --exclude '.venv' --exclude 'data' \
-  ./src/ bguserver:~/lab/Tomer_Karmazin/final_project/src/
+rsync -avz --exclude '.git' --exclude '.venv' --exclude 'data' --exclude 'runs' \
+  ./src/ bguserver:~/lab/Tomer_Karmazin/stl10-ssl-comparison/src/
 ```
 
 Never rsync `data/`, `runs/`, or `.venv` — disk is the binding constraint.
@@ -161,20 +165,28 @@ Interpretation:
   MiB for the desktop; that is normal and not a training job.)
 - **Someone else's python holding VRAM** → do not launch. Tell Tomer who is on the GPU and
   let him coordinate.
-- **Free disk under ~15 GB** → do not launch.
+- **Free disk under ~20 GB** → do not launch.
+
+See what a stage would do before running it:
+
+```bash
+ssh bguserver "cd $PROJECT && bash scripts/run_all.sh plan"
+```
 
 Launch, detached (no tmux available):
 
 ```bash
-ssh bguserver 'cd ~/lab/Tomer_Karmazin/final_project && \
-  mkdir -p runs && \
-  nohup .venv/bin/python -u scripts/pretrain_vae.py --config configs/vae_base.yaml \
-    > runs/pretrain_$(date +%Y%m%d_%H%M%S).log 2>&1 & \
-  echo "started pid $!"'
+ssh bguserver "cd $PROJECT && mkdir -p logs && \
+  nohup bash scripts/run_all.sh pretrain > logs/pretrain_\$(date +%Y%m%d_%H%M%S).log 2>&1 & \
+  echo \"started pid \$!\""
 ```
 
-`-u` matters — without it Python buffers stdout and the log stays empty for ages, which
-looks like a hung job.
+Stages, in order: `prepare` → `pretrain` → `embed` → `sweep` → `probe` → `lock` →
+`seeds` → `cnn`. **`final` is separate, reads the test split, and runs once at the very
+end** — never fold it into a batch.
+
+`run_all.sh` invokes python with `-u`; without it stdout buffers and an 8 KB delay looks
+exactly like a hung job.
 
 Note the PID and the log path in your reply so the run can be found again.
 
@@ -207,22 +219,26 @@ figures. Leave large checkpoints on the server unless there is a reason to move 
 laptop does not have a GPU to use them with anyway.
 
 ```bash
-rsync -avz bguserver:~/lab/Tomer_Karmazin/final_project/runs/ ./runs/
+rsync -avz bguserver:~/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/ ./runs/
 ```
 
-`runs/` is gitignored. Anything that belongs in the report gets copied into `results/` and
-committed deliberately.
+`runs/` is gitignored. The repo has a script that promotes just the reportable artifacts
+into the tracked `results/` directory, refusing anything over 5 MB so a checkpoint cannot
+leak into git history:
+
+```bash
+ssh bguserver "cd ~/lab/Tomer_Karmazin/stl10-ssl-comparison &&   bash scripts/publish_results.sh"            # dry run first
+```
+
+Publishing to GitHub is how Lior gets access to the numbers. A push from the server may
+fail (shared account, no credential helper) — the commit is still made and can be pushed
+from the laptop.
 
 ## STL-10 data
 
-Not present on the server as of the last survey. It has to be downloaded there once —
-check disk first, and delete the tarball immediately after extracting.
+`bootstrap_server.sh` downloads and extracts it (deleting the ~2.5 GB tarball immediately)
+and builds `data/splits.npz` and `data/normalization.json`. There is nothing to do by hand.
 
-```bash
-ssh bguserver 'cd ~/lab/Tomer_Karmazin/final_project && mkdir -p data && cd data && \
-  curl -L -O http://ai.stanford.edu/~acoates/stl10/stl10_binary.tar.gz && \
-  tar xzf stl10_binary.tar.gz && rm stl10_binary.tar.gz && du -sh stl10_binary'
-```
-
-Parse `stl10_binary` directly with `numpy.fromfile` — no `torchvision.datasets`. `data/` is
+It is parsed with `numpy.fromfile` rather than `torchvision.datasets` — fewer dependencies,
+and the column-major transpose is handled explicitly in `src/data.py`. `data/` is
 gitignored; the dataset never enters the repo.

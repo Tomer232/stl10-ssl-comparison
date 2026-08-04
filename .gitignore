@@ -12,6 +12,9 @@ checkpoints/
 # because it never ships — keep it out of git so it cannot ship by accident.
 sandbox/
 
+# nohup output from long server stages
+logs/
+
 # Python
 .venv/
 venv/

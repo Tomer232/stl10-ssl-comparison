@@ -183,12 +183,13 @@ def write_json(path, payload):
 
 
 def summarize(values):
-    """mean / std / min / max. std is numpy's default population std (ddof = 0).
+    """mean / std / min / max. std is the SAMPLE std (ddof = 1).
 
-    Lior's notebook reports fold MEANS only and computes no standard deviation
-    anywhere, so this spread column has no counterpart in his arm -- see the
-    fuller note on `summarize` in scripts/train_downstream.py, including the
-    ddof = 1 / ddof = 0 mismatch against scripts/sweep_knn_lp.py.
+    ddof = 1 is the project-wide convention -- see the fuller note on `summarize`
+    in scripts/train_downstream.py. Every table in this project uses it, so
+    spreads from the sweep, the downstream runs and this benchmark are the same
+    statistic. Lior's notebook reports fold MEANS only and computes no standard
+    deviation anywhere, so this column has no counterpart in his arm.
     """
     array = numpy.asarray(values, dtype=numpy.float64)
     if array.size == 0:
@@ -196,7 +197,8 @@ def summarize(values):
                 "min": float("nan"), "max": float("nan"), "count": 0}
     return {
         "mean": float(array.mean()),
-        "std": float(array.std()),
+        # ddof=1 needs at least two values; a single fold has no spread to report.
+        "std": float(array.std(ddof=1)) if array.size > 1 else 0.0,
         "min": float(array.min()),
         "max": float(array.max()),
         "count": int(array.size),
@@ -287,22 +289,31 @@ def load_locked_selection(path, started_at):
 
 
 def resolve_locked_c(selection, fold_index):
-    """The C for one fold: a per-fold lock if the sweep recorded one, else the global lock.
+    """The C for one fold. The single scalar `selected_c` unless per-fold is opted into.
 
-    THE SCALAR `selected_c` IS THE ONE THAT MATCHES LIOR. His inner C search does
-    run inside every fold, but the choice is made once: cell 16 averages each C's
-    inner-CV scores across the ten folds and fits all ten with that single winner.
-    So a scalar lock reproduces his protocol; `selected_c_per_fold` is a
-    deliberate, more permissive variant of it -- ten chances to pick a good
-    regularization strength where his arm gets one -- and if it is used, the
-    report has to say so, because part of any gap then belongs to the selection
-    procedure rather than to the latent space.
+    THE SCALAR `selected_c` IS THE ONE THAT MATCHES LIOR, so it is the default and
+    a stray `selected_c_per_fold` key in the selection file can no longer silently
+    override it. His inner C search does run inside every fold, but the choice is
+    made once: cell 16 averages each C's inner-CV scores across the ten folds and
+    fits all ten with that single winner.
+
+    Using per-fold C requires BOTH an explicit `"c_selection": "per-fold"` in the
+    selection file AND a `selected_c_per_fold` list. That variant is more
+    permissive than his protocol -- ten chances at a good regularization strength
+    where his arm gets one -- so if it is used, the report has to say so, because
+    part of any gap then belongs to the selection procedure rather than to the
+    latent space.
 
     Both are honest in the sense that matters most (each was chosen on
     development data, never on test); they are simply not the same protocol.
     """
-    per_fold = selection.get("selected_c_per_fold")
-    if per_fold is not None:
+    if selection.get("c_selection") == "per-fold":
+        per_fold = selection.get("selected_c_per_fold")
+        if per_fold is None:
+            raise SystemExit(
+                'selection sets "c_selection": "per-fold" but has no '
+                "selected_c_per_fold list to read"
+            )
         if len(per_fold) != config.NUM_FOLDS:
             raise SystemExit(
                 "selected_c_per_fold must hold " + str(config.NUM_FOLDS) + " values, got "
@@ -954,9 +965,9 @@ def main(argv=None):
         "test_split_touched": True,
         "test_images": config.NUM_TEST_IMAGES,
         "seed": arguments.seed,
-        "std_convention": ("population std (ddof = 0) over the 10 folds. Lior's arm reports "
-                           "fold means only and computes no std, so this column has no "
-                           "counterpart there; scripts/sweep_knn_lp.py uses ddof = 1"),
+        "std_convention": ("sample std (ddof = 1) over the 10 folds, used project-wide. "
+                           "Lior's arm reports fold means only and computes no std, so "
+                           "this column has no counterpart there"),
         "selection_sha256": selection_digest,
         "selection": selection,
         "arms": summaries,

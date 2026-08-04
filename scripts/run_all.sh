@@ -30,8 +30,9 @@
 #     PYTHON below, which defaults to the project venv;
 #   * `-u` on every invocation so nohup's log updates live rather than in 8 KB
 #     bursts, which is the difference between "it is training" and "it hung";
-#   * disk is the binding constraint (~13 GB free on one volume). The VAE
-#     checkpoints are the bulk of it -- see the note in stage `pretrain`.
+#   * disk is the binding constraint: one volume, no quotas, shared with the
+#     rest of the lab. The VAE checkpoints are the bulk of what this writes --
+#     see the note in stage `pretrain`. Check `df -h /` before a long stage.
 
 set -euo pipefail
 
@@ -59,6 +60,10 @@ SEED="${SEED:-42}"
 # of GPU time and answers nothing the beta sweep has not already answered.
 # (Lior's arm is currently single-seed. That gap is real; raise it, do not
 # quietly paper over it by reporting our spread against his point estimate.)
+# NOTE: 42 is the protocol seed, so stage `seeds` repeats the run that stage
+# `probe` already produced. That is deliberate -- it keeps the three-seed table
+# self-contained and lets it be read without cross-referencing another run
+# directory. Set SEEDS="43 44" to skip the repeat.
 SEEDS="${SEEDS:-42 43 44}"
 
 # The beta grid, from config.BETA_GRID. 0.0 is the plain-autoencoder control:

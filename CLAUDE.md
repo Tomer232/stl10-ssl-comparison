@@ -44,14 +44,33 @@ not automatically best-final-CNN-accuracy K** — report both.
 
 ---
 
+## The evaluation protocol (taken from Lior's notebook, not invented)
+
+STL-10 ships **10 official folds** in `fold_indices.txt`, each 1000 indices into the
+5000-image labeled train split. Lior fits one linear classifier per fold and evaluates it
+on all 8000 test images, reporting the mean over the folds. Inside each fold, an **800/200
+stratified development split** does all model selection. Our arm mirrors this exactly.
+
+Two conventions are settled — do not silently change them:
+
+- **One global C, not per-fold.** Every fold's inner CV is averaged across all ten folds
+  and all ten are fitted with the single winner, ranked by log loss first (his cell 16).
+  `--c-selection per-fold` exists as a sensitivity check and is **not** the comparable row.
+- **`±std` is the sample std (ddof=1)** everywhere. Lior's notebook computes no standard
+  deviation at all, so that column is ours alone and must never be presented as a
+  like-for-like spread against his.
+
+---
+
 ## Fairness constraints (make or break the comparison)
 
 Run `/parity-check` before any headline number goes in the report.
 
 - Same trunk, same embedding tap point, **same embedding dim**. Highest-risk item. Lior's
   encoder outputs 512-d pooled features (projection head discarded) — 512-d is the target.
-- Same splits, same held-out indices, same seed, same normalization constants. **The test
-  set is touched once, at the end, by both arms.**
+- Same splits: the 10 official folds, the same 800/200 development split protocol, same
+  seed, same normalization constants. **The test set is touched once, at the end, by both
+  arms** — only `scripts/final_benchmark.py` may read it, behind `--confirm-test-evaluation`.
 - Same pretraining budget: 100 epochs, batch 256.
 - ≥3 seeds, mean ± std. **Lior's notebook is currently single-seed (SEED=42) — unresolved
   gap, raise it rather than quietly paper over it.**
@@ -103,9 +122,13 @@ against Lior, since his downstream is a linear probe and ours is a CNN.
 ## Compute
 
 **All training runs on the lab RTX 5090 server. Tomer's laptop has no CUDA GPU (Intel Iris
-Xe only) — never suggest training locally.** Use `/gpu-run` for anything that touches the
-GPU; it carries the connection details, the disk and GPU preflight, and the detach-safe
-launch pattern.
+Xe only) — never suggest training locally.**
+
+- **On the laptop**, driving the server remotely: use `/gpu-run`. It carries the
+  connection details, the disk and GPU preflight, and the detach-safe launch pattern.
+- **On the server itself**: follow `RUNBOOK.md`. It is the entry point for an agent
+  running on `lab-server` — clone location, `scripts/bootstrap_server.sh`, stage order,
+  and where results go. Do not use `/gpu-run` there; it would SSH the box into itself.
 
 Local Python note: `python` on this laptop is **2.7**. Always use `py -3.12`. On the server
 there is no `python` at all, only `python3` and venvs.

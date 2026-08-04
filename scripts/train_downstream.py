@@ -179,21 +179,19 @@ def write_json(path, payload):
 def summarize(values):
     """mean / std / min / max over the per-fold values, as plain floats.
 
-    std is numpy's default POPULATION standard deviation (ddof = 0).
+    std is the SAMPLE standard deviation (ddof = 1), the project-wide convention.
+    The 10 folds are a sample of the protocol's variability, not the whole
+    population of it, so dividing by n-1 is the right estimator. Every table in
+    this project uses ddof = 1 -- scripts/sweep_knn_lp.py, this script, and
+    scripts/final_benchmark.py -- so a spread quoted from any of them is the same
+    statistic and they can sit in one table.
 
-    TWO CAVEATS THE REPORT HAS TO CARRY, because neither is visible in the number:
-
-    * Lior's notebook computes no standard deviation at all -- it reports fold
-      MEANS only (`accuracy_mean`, `f1_macro_mean`, `log_loss_mean`, cells 16 and
-      26). So the "+/- std" column is ours alone; there is nothing on his side to
-      match it against, and it must not be presented as a like-for-like spread.
-      This is the same single-seed gap CLAUDE.md says to raise rather than paper
-      over.
-    * scripts/sweep_knn_lp.py aggregates its fold spread with ddof = 1 (sample
-      std) while this script and scripts/final_benchmark.py use ddof = 0. Over 10
-      folds that is a ~5% difference in the quoted spread, so a std from the sweep
-      tables and a std from the benchmark tables are NOT the same statistic.
-      Pick one convention before the numbers go in the report.
+    ONE CAVEAT THE REPORT MUST CARRY, because it is not visible in the number:
+    Lior's notebook computes no standard deviation at all. It reports fold MEANS
+    only (`accuracy_mean`, `f1_macro_mean`, `log_loss_mean`, cells 16 and 26). The
+    "+/- std" column is ours alone; there is nothing on his side to match it
+    against, and it must not be presented as a like-for-like spread. This is the
+    same single-seed gap CLAUDE.md says to raise rather than paper over.
     """
     array = numpy.asarray(values, dtype=numpy.float64)
     if array.size == 0:
@@ -201,7 +199,8 @@ def summarize(values):
                 "min": float("nan"), "max": float("nan"), "count": 0}
     return {
         "mean": float(array.mean()),
-        "std": float(array.std()),
+        # ddof=1 needs at least two values; a single fold has no spread to report.
+        "std": float(array.std(ddof=1)) if array.size > 1 else 0.0,
         "min": float(array.min()),
         "max": float(array.max()),
         "count": int(array.size),
@@ -402,7 +401,24 @@ def parse_fold_argument(fold_argument):
 # ---------------------------------------------------------------------------
 
 def run_probe_mode(arguments, run_directory, device):
-    """Per-fold C search on 800, refit on 800, score the 200 held out. No test."""
+    """Lior's protocol: inner C search per fold, ONE C for all folds, then refit.
+
+    Two passes, because his selection is global (cell 16):
+
+      pass 1  run the inner 5-fold CV over the C grid inside each fold's 800
+              development-train images, and keep every fold's search rows
+      ---     average each C's log loss / accuracy / macro-F1 ACROSS the folds and
+              rank that aggregate -- one winning C for the whole checkpoint
+      pass 2  refit every fold on its 800 with that single C and score its 200
+              held-out images
+
+    Selecting per fold instead would give our arm ten chances at a good
+    regularization strength where his arm gets one, so the headline row uses the
+    global C. `--c-selection per-fold` keeps the other variant available as a
+    reported sensitivity check; it is not the comparable number.
+
+    The test split is never read.
+    """
     splits = load_or_build_splits(arguments.splits, arguments.data_root)
     official_folds = splits["official_folds"]
     train_labels = splits["train_labels"]
@@ -419,9 +435,12 @@ def run_probe_mode(arguments, run_directory, device):
     fold_rows = []
     cross_validation_rows = []
     per_fold_search_rows = []
+    per_fold_c = {}
+    prepared_folds = []
 
+    # ---- pass 1: inner C search inside every fold, no fitting yet -------------
     for fold_index in parse_fold_argument(arguments.folds):
-        fold_start = time.time()
+        search_start = time.time()
 
         # Compose fold-relative development positions with the fold's official
         # indices to get positions into the 5000 labeled train images.
@@ -449,10 +468,56 @@ def run_probe_mode(arguments, run_directory, device):
             num_splits=probe.CROSS_VALIDATION_SPLITS,
             seed=arguments.seed + fold_index,
         )
-        selected_c = probe.select_best_c(search_rows)
+        fold_best_c = probe.select_best_c(search_rows)
         per_fold_search_rows.append(search_rows)
+        per_fold_c[fold_index] = fold_best_c
 
-        for row in search_rows:
+        prepared_folds.append({
+            "fold": fold_index,
+            "search_seconds": time.time() - search_start,
+            "train_features": development_train_features,
+            "train_labels": development_train_labels,
+            "validation_features": development_validation_features,
+            "validation_labels": development_validation_labels,
+        })
+
+        log("fold %d: inner search done, fold-local best C=%g (%.1fs)"
+            % (fold_index, fold_best_c, prepared_folds[-1]["search_seconds"]))
+
+    # ---- the selection itself, once, across all folds ------------------------
+    global_c, aggregate_c_rows = probe.select_best_c_across_folds(per_fold_search_rows)
+    modal_c = max(set(per_fold_c.values()), key=list(per_fold_c.values()).count)
+
+    if arguments.c_selection == "global":
+        log("")
+        log("C selection: GLOBAL C=%g applied to every fold (Lior's cell-16 rule)" % global_c)
+    else:
+        log("")
+        log("C selection: PER-FOLD (sensitivity variant, NOT the comparable row)")
+
+    for row in aggregate_c_rows:
+        cross_validation_rows.append({
+            "fold": -1,  # -1 marks the across-fold aggregate, not a real fold
+            "c": row["c"],
+            "cv_accuracy_mean": row["accuracy_mean"],
+            "cv_f1_macro_mean": row["f1_macro_mean"],
+            "cv_log_loss_mean": row["log_loss_mean"],
+            "selected": int(row["c"] == global_c),
+        })
+
+    # ---- pass 2: refit each fold with the selected C and score its 200 --------
+    for position, prepared in enumerate(prepared_folds):
+        fold_index = prepared["fold"]
+        fold_start = time.time()
+
+        development_train_features = prepared["train_features"]
+        development_train_labels = prepared["train_labels"]
+        development_validation_features = prepared["validation_features"]
+        development_validation_labels = prepared["validation_labels"]
+
+        selected_c = global_c if arguments.c_selection == "global" else per_fold_c[fold_index]
+
+        for row in per_fold_search_rows[position]:
             cross_validation_rows.append({
                 "fold": fold_index,
                 "c": row["c"],
@@ -493,6 +558,10 @@ def run_probe_mode(arguments, run_directory, device):
             "arm": "linear_probe",
             "fold": fold_index,
             "selected_c": selected_c,
+            # What this fold's own inner search would have picked, kept so the
+            # global-vs-per-fold gap is visible in the table without a second run.
+            "fold_local_c": per_fold_c[fold_index],
+            "c_source": arguments.c_selection,
             "train_images": int(development_train_features.shape[0]),
             "eval_images": int(development_validation_features.shape[0]),
             "dev_accuracy": scores["accuracy"],
@@ -507,7 +576,8 @@ def run_probe_mode(arguments, run_directory, device):
                scores["log_loss"], fold_rows[-1]["seconds"]))
 
     write_csv(run_directory / "fold_metrics.csv",
-              ["arm", "fold", "selected_c", "train_images", "eval_images",
+              ["arm", "fold", "selected_c", "fold_local_c", "c_source",
+               "train_images", "eval_images",
                "dev_accuracy", "dev_f1_macro", "dev_precision_macro", "dev_log_loss",
                "seconds"],
               fold_rows)
@@ -518,17 +588,7 @@ def run_probe_mode(arguments, run_directory, device):
               cross_validation_rows)
 
     selected_c_values = [row["selected_c"] for row in fold_rows]
-    modal_c = max(set(selected_c_values), key=selected_c_values.count)
-
-    # Lior picks ONE C for all ten folds: he concatenates every fold's inner
-    # search, averages each C's log loss / accuracy / macro-F1 across the folds,
-    # and ranks that aggregate (cell 16). Selecting per fold, as the loop above
-    # does, gives our arm ten chances to find a good regularization strength
-    # where his arm gets one, so the two rows are not strictly comparable on the
-    # per-fold C. The global value is computed here so the human lock has the
-    # number that DOES match his protocol; which of the two goes into
-    # results/selection.json is a decision for whoever runs the lock.
-    global_c, aggregate_c_rows = probe.select_best_c_across_folds(per_fold_search_rows)
+    fold_local_c_values = [row["fold_local_c"] for row in fold_rows]
 
     summary = {
         "arm": "linear_probe",
@@ -540,13 +600,18 @@ def run_probe_mode(arguments, run_directory, device):
         "f1_macro": summarize([row["dev_f1_macro"] for row in fold_rows]),
         "precision_macro": summarize([row["dev_precision_macro"] for row in fold_rows]),
         "log_loss": summarize([row["dev_log_loss"] for row in fold_rows]),
-        "selected_c_per_fold": selected_c_values,
-        "selected_c_modal": modal_c,
+        "c_selection": arguments.c_selection,
         "selected_c_global": global_c,
-        "c_selection_rule": ("per fold: lowest mean inner-CV log loss, then highest accuracy, "
-                             "then highest macro-F1, then smaller C (Lior's cell 16 ordering). "
-                             "selected_c_global applies that same ordering to the C grid "
-                             "averaged across folds, which is the single C his arm uses."),
+        "selected_c_modal": modal_c,
+        "selected_c_used_per_fold": selected_c_values,
+        "fold_local_c": fold_local_c_values,
+        "c_selection_rule": ("ONE C for all folds (default). Each fold's inner 5-fold CV over "
+                             "the C grid is averaged ACROSS folds, and that aggregate is ranked "
+                             "by lowest log loss, then highest accuracy, then highest macro-F1, "
+                             "then smaller C -- Lior's cell 16 rule, applied the way he applies "
+                             "it. fold_local_c records what each fold would have chosen alone; "
+                             "--c-selection per-fold uses those instead, as a sensitivity check "
+                             "that is NOT comparable to his arm."),
     }
     write_json(run_directory / "summary.json", summary)
 
@@ -560,13 +625,15 @@ def run_probe_mode(arguments, run_directory, device):
     # lock, not a substitute for it -- writing it here keeps the number the
     # development split actually chose, so nobody has to retype it later.
     write_json(run_directory / "probe_selection_candidate.json", {
-        # The GLOBAL C, not the modal one: Lior's arm fits all ten folds with a
-        # single C chosen from the fold-averaged inner search, so this is the
-        # value that keeps the two arms' probes regularized the same way. The
-        # modal and per-fold values are kept alongside for the report.
+        # The GLOBAL C: Lior's arm fits all ten folds with a single C chosen from
+        # the fold-averaged inner search, so this is the value that keeps the two
+        # arms' probes regularized the same way. Always the global number here,
+        # even under --c-selection per-fold, because the lock feeds the benchmark
+        # row that has to be comparable to his.
         "selected_c": global_c,
         "selected_c_modal": modal_c,
-        "selected_c_per_fold": selected_c_values,
+        "fold_local_c": fold_local_c_values,
+        "c_selection_used_in_this_run": arguments.c_selection,
         "selection_split": "development",
         "test_seen_during_selection": False,
         "source": "scripts/train_downstream.py --mode probe",
@@ -578,8 +645,13 @@ def run_probe_mode(arguments, run_directory, device):
     log("  accuracy  %.4f +/- %.4f" % (summary["accuracy"]["mean"], summary["accuracy"]["std"]))
     log("  macro-F1  %.4f +/- %.4f" % (summary["f1_macro"]["mean"], summary["f1_macro"]["std"]))
     log("  log-loss  %.4f +/- %.4f" % (summary["log_loss"]["mean"], summary["log_loss"]["std"]))
-    log("  C per fold: " + str(selected_c_values))
+    log("  std is the sample std (ddof=1) over the folds; Lior's arm reports no std")
+    log("  C used (%s): %s" % (arguments.c_selection, str(selected_c_values)))
     log("  C global (Lior's rule -- one C for all folds): " + str(global_c))
+    log("  C each fold would have picked alone:          " + str(fold_local_c_values))
+    if arguments.c_selection != "global":
+        log("  WARNING: per-fold C is a sensitivity variant. The row comparable to")
+        log("           Lior's arm is the one produced by --c-selection global.")
 
 
 # ---------------------------------------------------------------------------
@@ -1020,6 +1092,14 @@ def parse_arguments(argv):
                         help="cached frozen mu embeddings (.npz/.npy) -- probe mode")
     parser.add_argument("--max-iterations", type=int, default=probe.LINEAR_MAX_ITERATIONS,
                         help="L-BFGS iterations for the probe refit")
+
+    parser.add_argument("--c-selection", choices=("global", "per-fold"), default="global",
+                        help="how the probe picks C. 'global' (default) averages every "
+                             "fold's inner CV across folds and fits all ten folds with the "
+                             "one winner, which is Lior's cell-16 protocol and the only "
+                             "row comparable to his arm. 'per-fold' lets each fold pick "
+                             "its own C -- ten chances at a good regularization strength "
+                             "where his arm gets one -- and is a sensitivity check only.")
 
     parser.add_argument("--pseudo-labels", default=None,
                         help="cached propagated pseudo-labels (.npz) -- cnn mode. "

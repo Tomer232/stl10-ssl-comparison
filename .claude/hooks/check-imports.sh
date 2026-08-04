@@ -7,7 +7,7 @@
 #
 # Exit 2 feeds stderr back to Claude as a correction.
 #
-# Scope: src/ scripts/ notebooks/ only.
+# Scope: src/ scripts/ notebooks/ tests/ only.
 #   - reference/ holds Lior's notebook, which legitimately uses sklearn.
 #   - sandbox/ is the deliberate escape hatch for throwaway validation checks.
 
@@ -17,7 +17,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" || exit 0
 cd "$ROOT" || exit 0
 
 SCAN_DIRS=()
-for d in src scripts notebooks; do
+for d in src scripts notebooks tests; do
   [ -d "$d" ] && SCAN_DIRS+=("$d")
 done
 [ ${#SCAN_DIRS[@]} -eq 0 ] && exit 0

@@ -51,12 +51,24 @@ sanity check but not proof — a matching count with mismatched ordering still f
 
 ### 4. Splits and held-out indices
 
-Identical labeled/held-out/test index arrays, not merely identical *sizes*. Two different
-random 500-image labeled subsets give visibly different LP accuracy.
+The protocol is his, transcribed from cells 8 and 16: the **10 official folds** from
+`fold_indices.txt` (1000 indices each into the 5000 labeled train images), with an
+**800/200 stratified development split** inside each fold for all model selection, seeded
+`SEED + fold_index`. Final evaluation fits each fold's full 1000 and scores all 8000 test
+images, mean over the 10 folds.
 
-Best fix: generate the split once, save the index arrays to disk, and have both arms load
-that file. If his notebook derives its split inline, note it as a FAIL and propose the
-shared-file fix rather than editing his notebook unilaterally.
+Check ours uses the same folds, the same 800/200 protocol, and the same seeding rule.
+
+**Known asymmetry, documented not fixed:** his stratified split comes from sklearn's
+`train_test_split`; ours is hand-rolled because sklearn is banned. Same protocol and same
+seed, but not the identical partition. Report it; do not claim equivalence.
+
+### 4b. C selection
+
+He picks **one C for all ten folds** — every fold's inner CV averaged across folds, ranked
+by log loss, then accuracy, then macro-F1, then smaller C. Ours must default to the same.
+If a run used `--c-selection per-fold`, that row is a sensitivity check and is **not**
+comparable; FAIL any report that presents it as the headline.
 
 ### 5. Normalization constants
 
@@ -78,10 +90,12 @@ Lior: 100 epochs, batch 256. Ours must match the epoch count on the same 100k un
 split. If we converge earlier, still train the full budget — an unequal budget is the
 first thing a reader will attack.
 
-### 8. Seeds
+### 8. Seeds and the spread convention
 
-≥3 seeds per arm, reported as mean ± std. A single-seed difference between two SSL methods
-on STL-10 is well within noise.
+≥3 seeds per arm, reported as mean ± std, with **ddof=1** (the project-wide convention).
+A single-seed difference between two SSL methods on STL-10 is well within noise, which is
+why the spread matters. Lior's notebook computes no std at all, so that column has no
+counterpart on his side and must not be presented as a like-for-like comparison.
 
 **Known open gap: Lior's notebook is single-seed (`SEED=42`).** Until that is resolved, any
 comparison is one seed against three. Surface it every run — do not let it quietly become
