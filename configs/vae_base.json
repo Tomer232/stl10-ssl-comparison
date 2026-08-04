@@ -1,0 +1,29 @@
+{
+  "_documentation": {
+    "purpose": "Defaults for scripts/pretrain_vae.py. Every value a run depends on lives in a file so a run is reproducible from the file alone, rather than from a shell command nobody wrote down. Keys beginning with an underscore are ignored by the loader, which is how a JSON file gets comments.",
+    "precedence": "explicit command-line flag > this file > the constant in src/config.py",
+    "budget_parity": "epochs, batch_size, warmup_epochs, max_learning_rate, min_learning_rate and weight_decay are ground truth from Lior's SimCLR notebook (cell 4). Changing one of them here breaks budget parity and the two arms stop being comparable -- change both arms or neither.",
+    "latent_dim": "MUST stay 512. Lior's embedding is the 512-d pooled trunk feature with the projection head discarded, and our mu is what the KNN graph is built on. A narrower latent would hand the contrastive arm a dimensionality advantage unrelated to generative-vs-contrastive, which is the highest-risk fairness item in the project.",
+    "beta": "0.01 sits in the middle of the 0.001-0.1 band CLAUDE.md mandates. At beta = 1 the KL flattens exactly the class structure label propagation depends on; the beta ablation sweeps src/config.py's BETA_GRID = (0.0, 0.001, 0.003, 0.01, 0.03, 0.1) around this base run, with 0.0 as the plain-autoencoder control.",
+    "beta_warmup_epochs": "beta ramps linearly 0 -> beta over these epochs. Without it the model takes the KL term's immediately available minimum (every posterior = the prior) before the decoder is worth reconstructing through, and the posterior collapses -- mu becomes constant, every cosine similarity becomes ~1, and the graph is noise.",
+    "run_name": "runs/<run_name>_<timestamp>/ holds the checkpoints and history. The timestamp means a rerun never overwrites an earlier one."
+  },
+
+  "run_name": "vae_base",
+
+  "seed": 42,
+
+  "epochs": 100,
+  "batch_size": 256,
+  "warmup_epochs": 10,
+  "max_learning_rate": 0.0005,
+  "min_learning_rate": 0.00001,
+  "weight_decay": 0.0001,
+
+  "latent_dim": 512,
+
+  "beta": 0.01,
+  "beta_warmup_epochs": 10,
+
+  "vram_headroom_gigabytes": 10.0
+}
