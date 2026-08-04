@@ -1,0 +1,13 @@
+# Install torch from the cu128 index — the RTX 5090 is Blackwell (sm_120), so cu128
+# is the minimum. This exact build is already proven working on the lab server:
+#
+#   pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0
+#   pip install -r requirements.txt
+#
+torch==2.11.0
+numpy>=2.0
+matplotlib>=3.8
+
+# Deliberately absent: sklearn, scipy, faiss, networkx, torchvision.
+# The lecturer's "build from 0" constraint requires the KNN graph, label propagation,
+# metrics, union-find, and the ResNet trunk to be hand-written. See CLAUDE.md.

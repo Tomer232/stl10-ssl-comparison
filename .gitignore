@@ -1,0 +1,30 @@
+# Datasets and run artifacts — the server volume is the binding constraint, and
+# none of this belongs in the repo.
+data/
+runs/
+checkpoints/
+*.pt
+*.pth
+*.npy
+*.npz
+
+# Throwaway validation scratch. Exempt from the build-from-0 import hook precisely
+# because it never ships — keep it out of git so it cannot ship by accident.
+sandbox/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Course material (lecture decks, Hebrew-named Word docs). Kept out of git: they
+# are not our work, and the Hebrew filenames do not survive a Windows -> Linux
+# checkout cleanly.
+*.pptx
+*.docx
+
+# OS
+Thumbs.db
+.DS_Store
