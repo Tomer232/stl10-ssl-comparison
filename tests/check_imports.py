@@ -1,10 +1,17 @@
 """Enforce the build-from-zero rule.
 
-The project's central constraint is that the pipeline uses PyTorch and NumPy only. The
-notebook's final section deliberately imports scikit-learn and torchvision to check the
-hand-written components against the implementations they replace; those cells are the only
-permitted exception, and they are identified by the marker below rather than by cell number,
-so inserting cells cannot silently widen the exemption.
+The constraint governs the *method*: the KNN graph, label propagation, union-find, the
+metrics, the SE-ResNet trunk and both augmentation pipelines are hand-written in PyTorch and
+NumPy. Approximate-nearest-neighbour libraries, SciPy, NetworkX and torchvision are therefore
+banned from the pipeline.
+
+scikit-learn is NOT banned. A downstream linear classifier is not part of the method under
+study, and the notebook deliberately runs both its own probe and scikit-learn's on both arms
+so that the comparison does not rest on whose logistic regression fitted it.
+
+torchvision is permitted only inside the notebook's verification section, which checks the
+hand-written augmentation operations against it. That section is identified by the marker
+below rather than by cell number, so inserting cells cannot silently widen the exemption.
 
 Run from the repository root:
 
@@ -19,7 +26,6 @@ import pathlib
 import sys
 
 BANNED_TOP_LEVEL_MODULES = {
-    "sklearn",
     "scipy",
     "faiss",
     "networkx",

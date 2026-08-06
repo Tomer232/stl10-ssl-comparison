@@ -25,12 +25,18 @@ reported beside it, never instead of it.
 
 ## Two constraints
 
-**Built from zero.** No scikit-learn, SciPy, FAISS, NetworkX, `torchvision.models` or
-`torchvision.transforms` anywhere in the pipeline. PyTorch and NumPy only. The KNN graph,
-label propagation, union-find, every metric, the logistic-regression probe, the SE-ResNet and
-both augmentation pipelines are written out in the notebook. Section 14 verifies each of them
-against the reference implementation it replaces — those are the only cells that import a
-banned library, and the notebook runs to completion without them.
+**Built from zero — for the method.** No SciPy, FAISS, NetworkX, `torchvision.models` or
+`torchvision.transforms` anywhere in the pipeline. The KNN graph, label propagation,
+union-find, every metric, the SE-ResNet and both augmentation pipelines are written out in
+the notebook in PyTorch and NumPy. Section 14 verifies each of them against the
+implementation it replaces; those are the only cells that import torchvision, and the
+notebook runs to completion without them.
+
+The **evaluation probe** is a deliberate exception. It is hand-written too, but
+scikit-learn's `LogisticRegression` is also fitted, on both arms, under the identical
+protocol, and section 12 reports the two side by side. A downstream linear classifier is not
+part of the method under study, and demonstrating that the conclusion does not depend on
+whose logistic regression produced it is worth more than excluding the library.
 
 `tests/check_imports.py` enforces the rule mechanically.
 

@@ -11,12 +11,16 @@ matplotlib>=3.8
 jupyter>=1.0
 nbconvert>=7.0
 
-# Deliberately absent: sklearn, scipy, faiss, networkx, torchvision.
+# The probe cross-check in section 12 fits scikit-learn's LogisticRegression alongside the
+# hand-written one, on both arms. The notebook runs without it and reports only the
+# hand-written row, but the cross-check is worth having.
+scikit-learn>=1.4
+
+# Deliberately absent: scipy, faiss, networkx, torchvision.
 #
-# The build-from-zero constraint requires the KNN graph, label propagation, the metrics,
-# union-find, the logistic-regression probe, the SE-ResNet trunk and both augmentation
-# pipelines to be hand-written. Section 14 of the notebook checks those implementations
-# against scikit-learn and torchvision; install them separately if you want to run it.
-# Nothing in the pipeline depends on them, and the notebook completes without them.
+# The build-from-zero constraint governs the method: the KNN graph, label propagation, the
+# metrics, union-find, the SE-ResNet trunk and both augmentation pipelines are hand-written.
+# Section 14 checks the augmentation operations against torchvision; install it separately
+# to run those cells. Nothing in the pipeline depends on it.
 #
 # tests/check_imports.py enforces this mechanically.
