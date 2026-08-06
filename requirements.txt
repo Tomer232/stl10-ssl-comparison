@@ -1,13 +1,22 @@
-# Install torch from the cu128 index — the RTX 5090 is Blackwell (sm_120), so cu128
-# is the minimum. This exact build is already proven working on the lab server:
+# Install torch from the cu128 index. Blackwell cards (sm_120, e.g. the RTX 5090) need
+# CUDA 12.8 as a minimum; this build also works on older hardware.
 #
 #   pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0
 #   pip install -r requirements.txt
 #
+# scripts/setup.sh does both steps.
 torch==2.11.0
 numpy>=2.0
 matplotlib>=3.8
+jupyter>=1.0
+nbconvert>=7.0
 
 # Deliberately absent: sklearn, scipy, faiss, networkx, torchvision.
-# The lecturer's "build from 0" constraint requires the KNN graph, label propagation,
-# metrics, union-find, and the ResNet trunk to be hand-written. See CLAUDE.md.
+#
+# The build-from-zero constraint requires the KNN graph, label propagation, the metrics,
+# union-find, the logistic-regression probe, the SE-ResNet trunk and both augmentation
+# pipelines to be hand-written. Section 14 of the notebook checks those implementations
+# against scikit-learn and torchvision; install them separately if you want to run it.
+# Nothing in the pipeline depends on them, and the notebook completes without them.
+#
+# tests/check_imports.py enforces this mechanically.

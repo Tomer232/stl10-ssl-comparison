@@ -1,96 +1,93 @@
-# STL-10 semi-supervised comparison — VAE + Label Propagation vs SimCLR
+# Does a generative or a contrastive latent space propagate labels better?
 
-Final project for Afeka's *Advanced Methods in Machine Learning*, by **Tomer
-Karmazin** and **Lior Reznik**.
+Semi-supervised classification on STL-10. Final project for *Advanced Methods in Machine
+Learning*, Afeka College — **Tomer Karmazin** and **Lior Reznik**.
 
-> **Does a generative or a contrastive latent space propagate labels better?**
-
-Two arms, one trunk, one protocol, one variable:
-
-| | Tomer's arm (this code) | Lior's arm (`simclr_stl10_abilation_f.ipynb`) |
-|---|---|---|
-| pretraining | VAE on the 100k unlabeled split | SimCLR on the 100k unlabeled split |
-| embedding | `mu`, 512-d | pooled features, 512-d (projection head discarded) |
-| downstream | label propagation over a KNN graph → CNN on pseudo-labels, **plus a linear probe** | linear probe |
-| libraries | hand-written, no sklearn/scipy/faiss/networkx | sklearn |
-
-The trunk is the same SE-ResNet on both sides — ours reimplemented from scratch
-and verified **state-dict compatible** with his (13,385,544 parameters, identical
-keys and shapes, bit-identical forward pass after `load_state_dict(strict=True)`).
-That is what makes the pretraining objective the only variable.
+Everything lives in one notebook: **[`stl10_semi_supervised_comparison.ipynb`](stl10_semi_supervised_comparison.ipynb)**.
 
 ---
+
+## The question
+
+STL-10 provides 100,000 unlabeled images and only 1,000 labeled ones per fold. We compare
+two ways of learning a representation from the unlabeled images, holding everything else
+fixed so that the pretraining objective is the only variable.
+
+| | Generative arm | Contrastive arm |
+|---|---|---|
+| Objective | β-VAE (evidence lower bound) | SimCLR (NT-Xent) |
+| Encoder | SE-ResNet, 13.4M parameters | the same SE-ResNet |
+| Embedding | `mu`, 512-d | pooled features, 512-d |
+| Downstream | KNN graph → label propagation → CNN, plus a linear probe | linear probe |
+
+The two linear-probe rows are the comparison. The CNN row answers a narrower question and is
+reported beside it, never instead of it.
+
+## Two constraints
+
+**Built from zero.** No scikit-learn, SciPy, FAISS, NetworkX, `torchvision.models` or
+`torchvision.transforms` anywhere in the pipeline. PyTorch and NumPy only. The KNN graph,
+label propagation, union-find, every metric, the logistic-regression probe, the SE-ResNet and
+both augmentation pipelines are written out in the notebook. Section 14 verifies each of them
+against the reference implementation it replaces — those are the only cells that import a
+banned library, and the notebook runs to completion without them.
+
+`tests/check_imports.py` enforces the rule mechanically.
+
+**The test split is opened once.** Every hyperparameter is selected on a held-out 800/200
+development split inside each official fold. The selection is written to
+`results/selection.json` and hashed before section 12 reads the test set for the first and
+only time.
+
+## Protocol
+
+STL-10 ships ten official folds of 1,000 labeled images each. One classifier is fitted per
+fold and evaluated on all 8,000 test images; the headline number is the mean over the ten
+folds, and every `±` is the sample standard deviation (ddof = 1) across them. Both arms use
+seed 42.
 
 ## Running it
 
-**All training happens on the lab RTX 5090 server.** See **[RUNBOOK.md](RUNBOOK.md)**
-— clone location, one-command bootstrap, stage order, and the rules about the
-test split and the shared GPU.
-
 ```bash
-bash scripts/bootstrap_server.sh   # setup: venv, torch+cu128, data, splits, smoke test
-bash scripts/run_all.sh plan       # what would run, and roughly how long
+git clone https://github.com/Tomer232/stl10-ssl-comparison.git
+cd stl10-ssl-comparison
+bash scripts/setup.sh                 # virtual environment, PyTorch, STL-10
+python tests/check_imports.py         # build-from-zero check
+jupyter lab stl10_semi_supervised_comparison.ipynb
 ```
 
-Tomer's laptop has no CUDA GPU; nothing here trains locally. The CPU smoke test
-does run anywhere:
+A cold run needs a CUDA GPU with at least 16 GB and roughly two days — four 100-epoch SimCLR
+pretrains, eight 100-epoch VAE pretrains, the sweeps, and ten downstream CNNs. Every heavy
+stage caches its output under `runs/`, so an interrupted run resumes rather than starting
+over, and a second pass takes minutes. Set `FORCE_RETRAIN = True` in section 0 to ignore the
+cache.
 
-```bash
-py -3.12 tests/smoke_test.py       # 41 asserts, ~90 s, no pytest needed
-```
-
----
+See **[RUNBOOK.md](RUNBOOK.md)** for running it unattended on a remote GPU machine.
 
 ## Layout
 
 ```
-src/          the pipeline, hand-written under the build-from-0 constraint
-  trunk.py        SE-ResNet encoder, state-dict compatible with Lior's
-  vae.py          VAE + beta warmup + the loss, with the KL term logged separately
-  data.py         stl10_binary parsed with numpy.fromfile, folds, stratified split
-  knn.py          chunked cosine KNN graph, heat-kernel weights, union symmetrization
-  labelprop.py    F <- PF with the labeled rows re-clamped every iteration
-  probe.py        multinomial logistic regression matching sklearn's C convention
-  metrics.py      every metric from one bincount confusion matrix
-  unionfind.py    connected components
-  classifier.py   the CNN trained on propagated pseudo-labels
-scripts/      thin drivers: prepare, pretrain, embed, sweep, downstream, benchmark
-configs/      run configurations
-tests/        smoke_test.py — the whole pipeline on tiny synthetic data
-results/      committed summaries (the report reads these)
+stl10_semi_supervised_comparison.ipynb   the project
+reference/simclr_stl10_abilation_f.ipynb Lior's original SimCLR implementation, unmodified
+scripts/setup.sh                         environment and data setup
+tests/check_imports.py                   enforces the build-from-zero rule
+results/                                 committed metrics, selection and figures
+runs/                                    checkpoints and caches (gitignored, reproducible)
+data/                                    stl10_binary (gitignored)
 ```
 
-`CLAUDE.md` holds the binding constraints. `.claude/hooks/check-imports.sh`
-enforces the build-from-0 rule mechanically.
+The contrastive arm is reimplemented inside the notebook so that one file runs the whole
+comparison, and so that both arms share the same augmentation primitives and the same probe.
+Lior's original notebook is preserved unmodified under `reference/` as the provenance for
+that arm.
 
----
+## Documented asymmetries
 
-## The constraints that shape the code
-
-- **Build from 0.** No sklearn, scipy, faiss, networkx, or `torchvision.models`
-  in Tomer's arm. PyTorch and NumPy only. Lior's notebook keeps sklearn — the
-  rule binds one arm, not both.
-- **A VAE, not an autoencoder.** `beta` in 0.001–0.1 with warmup. At `beta=1` the
-  KL flattens exactly the class structure label propagation depends on.
-- **`mu`, never a sample.** Sampling would change the graph between runs.
-- **Chunked similarity.** 105k × 105k fp32 is ~44 GB; the graph is built 1024
-  rows at a time against all 105k columns (~430 MB).
-- **The test set is touched once**, at the end, by both arms, after every
-  hyperparameter is locked on development data.
-
----
-
-## Known asymmetries — reported, not hidden
-
-- Lior's encoder is single-seed (`SEED=42`); ours runs three. The 10 official
-  folds give both arms a spread on the downstream, but his *pretraining*
-  variance is unmeasured.
-- His downstream is a linear probe, ours is a CNN on pseudo-labels, so a
-  straight accuracy comparison is confounded by classifier capacity. **The
-  linear-probe row on our own embeddings is the apples-to-apples number**, and
-  the report leads with it.
-- Our stratified 80/20 development split is hand-rolled (sklearn is banned), so
-  it follows the same protocol as his at the same seed but is not the identical
-  partition.
-- Augmentations, batch size and optimizer schedule differ where the objectives
-  legitimately require it; forcing them equal would be its own distortion.
+- **Augmentation policies differ by design.** SimCLR's objective requires aggressive views;
+  a VAE's does not, because for a VAE the augmented view *is* the reconstruction target.
+  Section 3 argues why forcing them to match would distort the comparison rather than fix it.
+- **The tap point differs by one linear layer.** The contrastive arm reads the pooled trunk
+  feature; the generative arm passes it through `to_mu` first. Section 13.1 measures what
+  that is worth to both the probe and the graph.
+- **One seed.** Every `±` is the spread over the ten official folds, which is the variance
+  this protocol is built around, but neither arm's pretraining variance is measured.

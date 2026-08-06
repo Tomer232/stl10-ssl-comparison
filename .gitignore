@@ -1,5 +1,5 @@
-# Datasets and run artifacts — the server volume is the binding constraint, and
-# none of this belongs in the repo.
+# Dataset and run artifacts. Everything here is reproducible from a checkpoint and a
+# seed, and the checkpoints alone are several GB.
 data/
 runs/
 checkpoints/
@@ -8,11 +8,7 @@ checkpoints/
 *.npy
 *.npz
 
-# Throwaway validation scratch. Exempt from the build-from-0 import hook precisely
-# because it never ships — keep it out of git so it cannot ship by accident.
-sandbox/
-
-# nohup output from long server stages
+# Headless run logs.
 logs/
 
 # Python
@@ -22,9 +18,8 @@ __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
 
-# Course material (lecture decks, Hebrew-named Word docs). Kept out of git: they
-# are not our work, and the Hebrew filenames do not survive a Windows -> Linux
-# checkout cleanly.
+# Course material (lecture slides, Word documents). Not our work, and the Hebrew
+# filenames do not survive a Windows to Linux checkout cleanly.
 *.pptx
 *.docx
 

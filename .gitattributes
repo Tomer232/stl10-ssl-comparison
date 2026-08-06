@@ -1,13 +1,12 @@
-# Shell scripts must stay LF. This repo is checked out on both Windows (laptop) and
-# Ubuntu (the RTX 5090 server); a CRLF hook script fails on Linux with a bare
-# "\r: command not found".
+# Shell scripts must stay LF. This repository is checked out on both Windows and Linux,
+# and a CRLF script fails on Linux with a bare "\r: command not found".
 *.sh text eol=lf
 
-# Notebooks are JSON — let git treat them as text but never rewrite line endings,
-# so diffs stay meaningful and the file hash is stable across platforms.
+# Notebooks are JSON. Treat them as text but never rewrite line endings, so diffs stay
+# meaningful and the file hash is stable across platforms.
 *.ipynb -text
 
-# Model artifacts, should they ever be force-added.
+# Model artifacts, should any ever be force-added.
 *.pt binary
 *.pth binary
 *.npy binary

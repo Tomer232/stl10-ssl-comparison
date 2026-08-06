@@ -1,189 +1,109 @@
-# RUNBOOK — running this project on the lab RTX 5090 server
+# Running this on a remote GPU machine
 
-**If you are an agent running ON the server (`lab-server`, Ubuntu, one RTX 5090):
-this file is your entry point. Read `CLAUDE.md` too — it carries the constraints
-— but take your operating instructions from here.**
+The notebook is written to be run once, cold, on a machine with a CUDA GPU. A full run is
+roughly two days, so it needs to survive a dropped connection. This is how to do that.
 
-If you are running on Tomer's Windows laptop instead, stop: there is no CUDA GPU
-there, nothing in this project trains locally, and the `/gpu-run` skill is the
-laptop-side path. This file is for the machine with the GPU.
+## Requirements
 
----
+| | |
+|---|---|
+| GPU | CUDA, 16 GB or more. Developed on an RTX 5090 (Blackwell, `sm_120`), which needs **CUDA 12.8 or newer** |
+| Disk | at least 12 GB free after the dataset. `setup.sh` checks and refuses to continue otherwise |
+| Python | 3.12 |
+| RAM | 16 GB is enough; the unlabeled split is memory-mapped rather than loaded |
 
-## 0. Where this lives
-
-```
-/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/
-```
-
-Clone it there and nowhere else. Everything the project produces — `runs/`,
-`results/`, `logs/`, `data/` — lands inside that directory, which is what keeps
-all output inside Tomer's own folder on a machine whose `labadmin` account is
-shared by the whole lab.
+## Setup
 
 ```bash
-mkdir -p ~/lab/Tomer_Karmazin
-cd ~/lab/Tomer_Karmazin
-git clone <repo-url> stl10-ssl-comparison
+git clone https://github.com/Tomer232/stl10-ssl-comparison.git
 cd stl10-ssl-comparison
+bash scripts/setup.sh
 ```
 
----
+`setup.sh` is idempotent and trains nothing. It creates `.venv`, installs PyTorch with the
+right CUDA build, downloads and extracts STL-10 (deleting the ~2.5 GB tarball immediately),
+and runs the build-from-zero check. `bash scripts/setup.sh --check` re-verifies without
+changing anything.
 
-## 1. Setup — one command
+## Running unattended
 
-```bash
-bash scripts/bootstrap_server.sh
-```
-
-Idempotent, safe to re-run, and it trains nothing. It checks disk and the GPU,
-warns if the machine can still suspend itself mid-run, sets a repo-local git
-identity, builds `.venv` with `torch==2.11.0+cu128`, downloads and extracts
-STL-10 (deleting the tarball), builds the splits and normalization constants,
-and finally runs the smoke test and the build-from-0 hook.
-
-`bash scripts/bootstrap_server.sh --check` verifies without changing anything.
-
-If the smoke test fails, **do not start training.** Fix it first — a failure
-there means the pipeline is broken in a way that would waste hours of GPU time
-and produce numbers nobody can defend.
-
----
-
-## 2. What to run
-
-```bash
-bash scripts/run_all.sh plan
-```
-
-Prints the stage table and the rough wall-clock per stage, and runs nothing.
-Read it before starting anything.
-
-Stages, in order: `prepare` → `pretrain` → `embed` → `sweep` → `probe` → `lock`
-→ `seeds` → `cnn`, and then `final` on its own at the very end.
-
-**There is no tmux on this box.** A dropped SSH connection kills a foreground
-job, so every long stage must be detached — with `setsid`, not just `nohup`:
+There is no notebook server to keep alive if you execute it headless, which is the
+recommended way for the cold run:
 
 ```bash
 mkdir -p logs
-setsid nohup bash scripts/run_all.sh pretrain > logs/pretrain.log 2>&1 < /dev/null &
+setsid nohup .venv/bin/jupyter nbconvert \
+    --to notebook --execute --inplace \
+    --ExecutePreprocessor.timeout=-1 \
+    stl10_semi_supervised_comparison.ipynb \
+    > logs/run_$(date +%Y%m%d_%H%M%S).log 2>&1 < /dev/null &
 disown
-echo "pid $!"
-tail -f logs/pretrain.log
+echo "started pid $!"
 ```
 
-`nohup` alone is **not** enough. It only makes the job ignore SIGHUP, and the job
-stays in the launching shell's process group — so anything that signals that
-group (an agent harness tearing down its shell on exit, a `kill -- -PGID`, an
-editor's terminal pane closing) still takes the run down, 30 hours in. `setsid`
-puts the job in its own session and process group from the start, so there is no
-shared group left to signal; `< /dev/null` detaches stdin so it can never block
-on a read; `disown` drops it from the shell's job table.
-
-This cannot be retrofitted. A process's session is fixed once it is running, so
-a job launched the wrong way has to be restarted to be made safe. Check an
-existing run with:
+**Use `setsid`, not bare `nohup`.** `nohup` only makes the job ignore `SIGHUP`; the process
+stays in the launching shell's process group, so a `kill -- -PGID` — or anything that tears
+down the shell it was launched from — still kills a two-day run. `setsid` gives the job its
+own session and process group. Verify before walking away:
 
 ```bash
 ps -o pid,ppid,pgid,sid,stat,cmd -p <pid>
 ```
 
-`PPID 1` plus `PGID == SID == PID` plus `Ss` in STAT means it is a session leader
-in its own group and is genuinely independent. If `PGID` matches some other
-shell's pid, it is not.
+You want `PPID 1`, `PGID == SID == PID`, and `Ss` in `STAT`. A process's session cannot be
+changed after it starts, so a job launched without `setsid` has to be restarted to be made
+safe.
 
-Check on a run:
+### Suspend
+
+On a desktop-class Linux install, check that the machine will not suspend itself partway
+through:
 
 ```bash
-pgrep -af run_all.sh                                    # still alive?
+systemctl status sleep.target suspend.target
+```
+
+If they are not masked, an idle window during a two-day run will stop it. Masking them
+changes machine-wide behaviour, so on a shared machine agree it with whoever owns the box
+first:
+
+```bash
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+```
+
+## Monitoring
+
+```bash
+tail -f logs/<logfile>                                    # progress
 nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv
-df -h / | tail -1                                       # disk not filling?
-tail -n 40 logs/pretrain.log
+df -h /                                                   # the notebook writes ~8 GB
+ls -la runs/                                              # which stages have completed
 ```
 
----
+Each cached stage prints `[cache hit]` or `[building]`, so the log says exactly where the run
+is. The order is: normalization → four SimCLR pretrains → eight VAE pretrains → embeddings →
+graph survey → propagation studies → sweeps → selection → test benchmark.
 
-## 3. Rules that are not negotiable
+## If it stops
 
-**Never run `final` early.** Stage `final` is the only thing in this repo that
-reads the test split. It is deliberately excluded from `all`, refuses to start
-without `results/selection.json`, and requires `--confirm-test-evaluation`. Every
-hyperparameter — beta, K, C — is chosen on the 200 held-out development images
-inside each fold, never on test. Touching test before the selection is locked
-does not weaken the report; it invalidates it entirely.
+Nothing is lost. Re-running the notebook reloads every completed stage from `runs/` and
+resumes at the first one that has not finished. Only delete a `runs/*.pt` file if you
+actually want that stage recomputed, or set `FORCE_RETRAIN = True` in section 0 to recompute
+everything.
 
-**Never install `sklearn`, `scipy`, `faiss`, or `networkx`.** The lecturer's
-"build from 0" constraint requires the KNN graph, label propagation, the metrics,
-union-find, the ResNet trunk and the logistic-regression probe to be hand-written.
-A `PostToolUse` hook rejects those imports in `src/`, `scripts/`, `notebooks/` and
-`tests/`. `sandbox/` is the deliberate, gitignored escape hatch for a throwaway
-check; nothing there ships.
+Disk is the most likely cause of a mid-run failure. Every stage that writes calls
+`require_disk` first and aborts with a clear message rather than filling the volume — a
+runaway job that fills the root filesystem takes the whole machine down, which on a shared
+box affects other people's work.
 
-**Never edit `simclr_stl10_abilation_f.ipynb`.** It is Lior's arm, kept here as
-the reference the fairness audit reads. Changing it breaks the comparison.
+## Getting results back
 
-**Coordinate before taking the GPU.** One card, no scheduler, `labadmin` shared
-by the lab. Check `nvidia-smi --query-compute-apps=...` first and, if someone
-else's process is on it, say so rather than launching alongside them.
-
-**Watch the disk.** One volume, no quotas. A job that fills `/` takes down the
-whole lab's machine. Never delete other people's files to make room — ask.
-
----
-
-## 4. Where the results go
-
-| directory | tracked by git? | what it holds |
-|---|---|---|
-| `data/` | no | STL-10 plus `splits.npz` and `normalization.json` |
-| `runs/` | no | everything a stage emits: checkpoints, embedding caches, logs, metrics |
-| `results/` | **yes** | the small reportable artifacts, promoted from `runs/` |
-| `logs/` | no | nohup output |
-
-Promote the reportable artifacts when the numbers are final:
+`results/` is small — metrics, the selection file, figures — and is committed. `runs/` holds
+checkpoints and embedding caches, is gitignored, and stays on the machine; everything in it
+is reproducible from a checkpoint and a seed.
 
 ```bash
-bash scripts/publish_results.sh              # dry run, shows what would change
-bash scripts/publish_results.sh --commit     # copies CSV/JSON/PNG into results/ and commits
+rsync -avz <host>:<path>/stl10-ssl-comparison/results/ ./results/
 ```
 
-It refuses to commit anything over 5 MB, so checkpoints and the ~107 MB
-embedding caches cannot leak into git history by accident. They stay on the
-server and are reproducible from a checkpoint and a seed.
-
-Pushing may fail from the server: the shared account has no git credential
-helper and its `gh` login belongs to another lab member. The commit is made
-regardless and can be pushed from the laptop. Publishing to GitHub is how Lior
-gets access to the numbers.
-
----
-
-## 5. Two decisions already made — do not silently change them
-
-**One global C, not per-fold.** The linear probe averages every fold's inner CV
-across all ten folds and fits all ten with the single winner, which is exactly
-what Lior's cell 16 does. `--c-selection per-fold` exists as a sensitivity check
-and is *not* the row comparable to his arm; the default is `global`.
-
-**`±std` is the sample std (ddof=1)** everywhere in this project. Lior's notebook
-reports fold means only and computes no standard deviation at all, so that column
-is ours alone and must not be presented as a like-for-like spread against his.
-
----
-
-## 6. If something looks wrong
-
-Report it rather than working around it. In particular:
-
-- **KL term collapsing toward 0** during pretraining is posterior collapse — the
-  failure mode the low beta grid exists to avoid. It is visible per-epoch in the
-  log on purpose.
-- **Label propagation hitting the iteration cap** without converging means the
-  reported accuracies are a snapshot of a still-moving iteration. The cap is 300
-  because convergence measured at 107–118 iterations; if it is being hit, say so.
-- **Best-K by accuracy disagreeing with best-K by edge purity or coverage** is
-  expected and reportable, not a bug to tune away.
-- **Label mass diffusing through out-of-distribution nodes** is expected too:
-  STL-10's unlabeled split is deliberately broader than the 10 labeled classes.
-  Quantify it; it is a finding.
+Never rsync `runs/`, `data/` or `.venv`.
