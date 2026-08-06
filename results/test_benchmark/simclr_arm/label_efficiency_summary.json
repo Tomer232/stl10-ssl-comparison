@@ -1,0 +1,12 @@
+{
+  "policy_name": "P4_full_policy",
+  "selected_epoch": 100,
+  "c": 0.1,
+  "number_of_folds": 10,
+  "labeled_train_size_per_fold": 1000,
+  "test_size": 8000,
+  "accuracy_mean": 0.7932874999999999,
+  "f1_macro_mean": 0.7934363147960205,
+  "precision_macro_mean": 0.7943446026515614,
+  "log_loss_mean": 0.617437869310379
+}

@@ -110,8 +110,30 @@ K_GRID = (5, 10, 15, 20, 30, 50)
 # still-moving iteration". 300 leaves real headroom on the full 105k graph, whose
 # diameter is larger; the cost is ~200 extra sparse matmuls on a [105000, 10] matrix
 # per fold, which is seconds.
-LP_MAX_ITERATIONS = 300
+LP_MAX_ITERATIONS = 3000
 LP_TOLERANCE = 1e-6
+
+# Restart weight for Zhou label spreading, F <- alpha P F + (1 - alpha) Y, which is
+# the default method. It exists because hard-clamped Zhu-Ghahramani propagation --
+# what this pipeline originally ran -- has a nearly FLAT fixed point on this graph.
+# Measured over the ten folds at beta=0.001: at convergence the mean winning-class
+# share is 0.155 against a uniform floor of 0.10, and dev accuracy is 0.230 at K=5
+# and 0.208 at K=15, below the 0.370 that a plain cosine 20-NN vote against the 800
+# seeds gets with no graph at all. 800 seeds among 105000 nodes is simply too few
+# for an unrestarted walk to remember where it started.
+#
+# alpha controls locality: the fixed point is the discounted random-walk-with-restart
+# score, so alpha -> 1 recovers the flat solution and small alpha barely leaves the
+# seeds. 0.90 is the middle of the grid the sweep searches; it is a SELECTED value,
+# not a guess, and --alpha overrides it.
+#
+# LP_MAX_ITERATIONS went 300 -> 3000 with this change. Spreading converges
+# geometrically at rate alpha, needing about log(tolerance)/log(alpha) iterations:
+# ~130 at alpha=0.9 but ~1375 at alpha=0.99, and the sweep searches up to 0.99.
+# Under the old 300 the high-alpha cells would have been cut off mid-iteration,
+# which is the exact failure the previous run already made once.
+LP_ALPHA = 0.90
+LP_ALPHA_GRID = (0.50, 0.80, 0.90, 0.95, 0.99)
 
 # Rows of the similarity matrix computed per chunk. The full matrix is out of the
 # question: 105000 x 105000 fp32 = 105000 * 105000 * 4 bytes ~= 44 GB, which fits in

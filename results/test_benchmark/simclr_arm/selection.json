@@ -1,0 +1,10 @@
+{
+  "policy_name": "P4_full_policy",
+  "epoch": 100,
+  "c": 0.1,
+  "development_log_loss": 0.7311796605587005,
+  "development_accuracy": 0.7630000000000001,
+  "development_f1_macro": 0.7614445305448758,
+  "temperature": 0.2,
+  "encoder_path": "/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/selected_encoder.pt"
+}

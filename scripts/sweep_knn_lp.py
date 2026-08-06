@@ -70,7 +70,7 @@ from src.seeding import enable_deterministic, reset_seed
 # Columns of per_fold.csv, in the order they are written. Kept explicit rather
 # than derived from a dict so the CSV schema is a visible, reviewable thing.
 PER_FOLD_COLUMNS = [
-    "embedding_label", "beta", "k", "fold",
+    "embedding_label", "beta", "k", "method", "alpha", "fold",
     "dev_accuracy", "dev_macro_f1", "dev_accuracy_reachable",
     "dev_unreachable_count", "dev_size",
     "edge_purity", "edge_purity_fold",
@@ -142,6 +142,19 @@ def parse_arguments():
                         help="Label-propagation iteration cap.")
     parser.add_argument("--tolerance", type=float, default=config.LP_TOLERANCE,
                         help="Convergence tolerance on max|F_next - F|.")
+    parser.add_argument("--method", choices=("spread", "clamp"), default="spread",
+                        help="spread (default): Zhou label spreading, "
+                             "F <- alpha P F + (1-alpha) Y. clamp: Zhu-Ghahramani hard "
+                             "clamping. On this graph `clamp` converges to a nearly flat "
+                             "fixed point -- 800 seeds among 105000 nodes is too few for "
+                             "the walk to remember where it started -- so it is kept only "
+                             "as the documented negative result. See labelprop.spread.")
+    parser.add_argument("--alpha-grid", nargs="+", type=float, default=list(config.LP_ALPHA_GRID),
+                        help="Restart weights to sweep for --method spread, selected on dev "
+                             "exactly like K. Lower keeps propagation local; higher reaches "
+                             "further and needs more iterations (roughly log(tol)/log(alpha) "
+                             "of them). Ignored by --method clamp, which has no alpha -- that "
+                             "run collapses to a single alpha=1.0 column.")
 
     parser.add_argument("--device", default=None,
                         help="cuda, cuda:0, cpu. Default: cuda when available, else cpu.")
@@ -385,7 +398,8 @@ def build_node_label_arrays(train_labels, num_nodes, labeled_train_offset, train
 
 
 def evaluate_fold(propagation_matrix, fold, labeled_train_offset, num_nodes,
-                  neighbor_indices, node_labels, component_ids, arguments, device):
+                  neighbor_indices, node_labels, component_ids, arguments, device,
+                  alpha):
     """Propagate from one fold's 800 seeds and score its 200 dev-validation nodes.
 
     Returns a dict of the per-(K, fold) numbers. Nothing here reads the test
@@ -406,9 +420,14 @@ def evaluate_fold(propagation_matrix, fold, labeled_train_offset, num_nodes,
     # rows, so the two cannot drift apart.
     labeled_onehot = initial_F[seed_nodes]
 
-    final_F, iterations, final_delta = labelprop.propagate(
-        propagation_matrix, initial_F, seed_nodes, labeled_onehot,
-        arguments.max_iterations, arguments.tolerance)
+    if arguments.method == "spread":
+        final_F, iterations, final_delta = labelprop.spread(
+            propagation_matrix, initial_F, seed_nodes, labeled_onehot,
+            alpha, arguments.max_iterations, arguments.tolerance)
+    else:
+        final_F, iterations, final_delta = labelprop.propagate(
+            propagation_matrix, initial_F, seed_nodes, labeled_onehot,
+            arguments.max_iterations, arguments.tolerance)
 
     pseudo_labels, _ = labelprop.pseudo_labels_from(final_F)
 
@@ -472,6 +491,11 @@ def evaluate_fold(propagation_matrix, fold, labeled_train_offset, num_nodes,
         "confidence_mean": summary["confidence_mean"],
         "num_seed_nodes": int(seed_nodes.numel()),
         "fold_seconds": time.time() - started_at,
+        "method": arguments.method,
+        # Recorded as 1.0 for --method clamp: hard clamping is the alpha -> 1
+        # limit of spreading, and giving it a number keeps every row in the CSV
+        # comparable instead of leaving a hole that has to be special-cased.
+        "alpha": float(alpha) if arguments.method == "spread" else 1.0,
     }
 
 
@@ -516,8 +540,8 @@ def write_csv(path, columns, rows):
 
 def print_summary_table(summary_rows, beta_sweep_mode):
     """Print the mean +/- std table the report's K-sweep figure is drawn from."""
-    header = ("%-14s %5s   %-16s %-16s %-14s %-14s %8s %7s %6s"
-              % ("embedding", "K", "dev acc", "dev macroF1", "edge purity",
+    header = ("%-14s %5s %6s   %-16s %-16s %-14s %-14s %8s %7s %6s"
+              % ("embedding", "K", "alpha", "dev acc", "dev macroF1", "edge purity",
                  "coverage", "unreach", "iters", "conv"))
     print("", flush=True)
     print(header, flush=True)
@@ -528,8 +552,8 @@ def print_summary_table(summary_rows, beta_sweep_mode):
         # "conv" is the fraction of the 10 folds that reached the tolerance before
         # the iteration cap. Anything below 1.00 means the accuracy on that row is
         # a snapshot of an iteration that was still moving.
-        print("%-14s %5d   %6.4f +/-%.4f %6.4f +/-%.4f %6.4f +/-%.3f %6.4f +/-%.3f %8.0f %7.1f %6.2f"
-              % (label[:14], row["k"],
+        print("%-14s %5d %6.2f   %6.4f +/-%.4f %6.4f +/-%.4f %6.4f +/-%.3f %6.4f +/-%.3f %8.0f %7.1f %6.2f"
+              % (label[:14], row["k"], row["alpha"],
                  row["dev_accuracy_mean"], row["dev_accuracy_std"],
                  row["dev_macro_f1_mean"], row["dev_macro_f1_std"],
                  row["edge_purity_mean"], row["edge_purity_std"],
@@ -540,7 +564,15 @@ def print_summary_table(summary_rows, beta_sweep_mode):
     print("", flush=True)
 
 
-def pivot_rows(summary_rows, metric_name, k_grid):
+def _distinct_labels(summary_rows):
+    labels = []
+    for row in summary_rows:
+        if row["embedding_label"] not in labels:
+            labels.append(row["embedding_label"])
+    return labels
+
+
+def pivot_rows(summary_rows, metric_name, k_grid, alpha):
     """Reshape the tidy summary into one row per embedding set, one column per K.
 
     The tidy summary.csv is the machine-readable artifact, but the beta ablation's
@@ -549,25 +581,55 @@ def pivot_rows(summary_rows, metric_name, k_grid):
     table means holding 36 rows in your head. This is the same numbers pivoted so
     the answer is visible, and it is what the report's beta x K table is drawn
     from.
-    """
-    labels = []
-    for row in summary_rows:
-        if row["embedding_label"] not in labels:
-            labels.append(row["embedding_label"])
 
-    columns = ["embedding_label", "beta"] + ["K=%d" % (k,) for k in k_grid]
+    `alpha` HOLDS THE THIRD AXIS FIXED. Since the sweep gained an alpha grid there
+    are several rows per (embedding, K), and silently taking the first would make
+    the table a mix of restart weights that reads as if it were one setting. The
+    caller passes the selected alpha; `pivot_alpha_rows` is the transpose, holding
+    K fixed instead.
+    """
+    columns = ["embedding_label", "beta", "alpha"] + ["K=%d" % (k,) for k in k_grid]
     rows = []
 
-    for label in labels:
-        entry = {"embedding_label": label, "beta": None}
+    for label in _distinct_labels(summary_rows):
+        entry = {"embedding_label": label, "beta": None, "alpha": alpha}
         for k in k_grid:
             matches = [row for row in summary_rows
-                       if row["embedding_label"] == label and row["k"] == k]
+                       if row["embedding_label"] == label
+                       and row["k"] == k
+                       and abs(row["alpha"] - alpha) <= TIE_TOLERANCE]
             if matches:
                 entry["beta"] = matches[0]["beta"]
                 entry["K=%d" % (k,)] = matches[0][metric_name + "_mean"]
             else:
                 entry["K=%d" % (k,)] = float("nan")
+        rows.append(entry)
+
+    return columns, rows
+
+
+def pivot_alpha_rows(summary_rows, metric_name, alpha_grid, k):
+    """One row per embedding set, one column per alpha, at fixed K.
+
+    The transpose of `pivot_rows`. Restart weight turned out to matter more than K
+    on this graph -- hard clamping is the alpha -> 1 limit and it collapses -- so
+    this is the table that shows it.
+    """
+    columns = ["embedding_label", "beta", "k"] + ["alpha=%g" % (a,) for a in alpha_grid]
+    rows = []
+
+    for label in _distinct_labels(summary_rows):
+        entry = {"embedding_label": label, "beta": None, "k": k}
+        for alpha in alpha_grid:
+            matches = [row for row in summary_rows
+                       if row["embedding_label"] == label
+                       and row["k"] == k
+                       and abs(row["alpha"] - alpha) <= TIE_TOLERANCE]
+            if matches:
+                entry["beta"] = matches[0]["beta"]
+                entry["alpha=%g" % (alpha,)] = matches[0][metric_name + "_mean"]
+            else:
+                entry["alpha=%g" % (alpha,)] = float("nan")
         rows.append(entry)
 
     return columns, rows
@@ -597,14 +659,19 @@ def best_row_by(summary_rows, metric_name):
     return max(summary_rows, key=lambda row: row[metric_name + "_mean"])
 
 
-def build_selection(summary_rows, embedding_sets, k_grid, tolerance, max_iterations):
-    """Pick K by mean dev accuracy and record where the other diagnostics disagree.
+def build_selection(summary_rows, embedding_sets, k_grid, tolerance, max_iterations,
+                    method, alpha_grid):
+    """Pick (K, alpha) by mean dev accuracy and record where the diagnostics disagree.
 
     CLAUDE.md is explicit that the best-LP-accuracy K need not be the best K on
     edge purity or component coverage, and that the disagreement is worth
     reporting. So the selection rule stays simple and stated up front -- highest
     mean dev accuracy -- and any disagreement is recorded next to it rather than
     resolved by a composite score nobody could defend.
+
+    Note that edge purity and component coverage are properties of the GRAPH, so
+    they depend on K alone and are constant across alpha. Comparing them against
+    the selected row therefore still compares K against K, as before.
     """
     warnings = []
     per_embedding = {}
@@ -657,6 +724,7 @@ def build_selection(summary_rows, embedding_sets, k_grid, tolerance, max_iterati
             "beta": embedding_set["beta"],
             "embeddings_path": embedding_set["path"],
             "best_k": int(accuracy_row["k"]),
+            "best_alpha": float(accuracy_row["alpha"]),
             "mean_dev_accuracy": accuracy_row["dev_accuracy_mean"],
             "std_dev_accuracy": accuracy_row["dev_accuracy_std"],
             "mean_dev_macro_f1": accuracy_row["dev_macro_f1_mean"],
@@ -676,13 +744,16 @@ def build_selection(summary_rows, embedding_sets, k_grid, tolerance, max_iterati
         "selection_rule": ("highest mean dev accuracy over the 10 official folds, measured on "
                            "each fold's 200 dev-validation nodes; ties go to the smaller K"),
         "test_split_touched": False,
+        "method": method,
         "k_grid": [int(k) for k in k_grid],
+        "alpha_grid": [float(a) for a in alpha_grid] if method == "spread" else [1.0],
         "lp_tolerance": tolerance,
         "lp_max_iterations": max_iterations,
         "per_embedding": per_embedding,
         "best_overall": {
             "embedding_label": overall_row["embedding_label"],
             "k": int(overall_row["k"]),
+            "alpha": float(overall_row["alpha"]),
             "mean_dev_accuracy": overall_row["dev_accuracy_mean"],
             "std_dev_accuracy": overall_row["dev_accuracy_std"],
         },
@@ -758,6 +829,11 @@ def main():
     print("  nodes            %d (labeled train at offset %d, count %d)"
           % (num_nodes, labeled_train_offset, train_count), flush=True)
     print("  K grid           %s" % (arguments.k_grid,), flush=True)
+    print("  LP method        %s%s"
+          % (arguments.method,
+             ("  alpha grid %s" % (arguments.alpha_grid,)) if arguments.method == "spread"
+             else "  (hard clamp -- documented negative result, see labelprop.spread)"),
+          flush=True)
     print("  output           %s" % (output_directory,), flush=True)
     print("  TEST SPLIT       not loaded, not scored -- selection is dev-only", flush=True)
     print("=" * 96, flush=True)
@@ -772,6 +848,11 @@ def main():
 
     node_labels, labeled_mask = build_node_label_arrays(
         train_labels, num_nodes, labeled_train_offset, train_count)
+
+    # `clamp` has no restart weight at all, so it runs a single pass rather than
+    # the same hard-clamped iteration five times over. The 1.0 is a label, not a
+    # parameter -- hard clamping is the alpha -> 1 limit of spreading.
+    alpha_grid = list(arguments.alpha_grid) if arguments.method == "spread" else [1.0]
 
     per_fold_rows = []
     graph_rows = []
@@ -843,33 +924,47 @@ def main():
                 "embeddings_path": embedding_set["path"],
             })
 
-            for fold in fold_definitions:
-                fold_result = evaluate_fold(
-                    propagation_matrix, fold, labeled_train_offset, num_nodes,
-                    neighbor_indices, node_labels, component_ids, arguments, device)
+            # The graph depends only on K, so it is built once and reused across
+            # every alpha -- alpha changes the iteration, not the edges.
+            for alpha in alpha_grid:
+                alpha_rows = []
 
-                row = {
-                    "embedding_label": embedding_set["label"],
-                    "beta": embedding_set["beta"],
-                    "k": k,
-                    "fold": fold["fold"],
-                    "edge_purity": all_labeled_edge_purity,
-                    "num_components": number_of_components,
-                    "largest_component_fraction": largest_component_fraction,
-                    "sigma": sigma,
-                    "graph_seconds": graph_seconds,
-                    "num_nodes": num_nodes,
-                    "embeddings_path": embedding_set["path"],
-                }
-                row.update(fold_result)
-                per_fold_rows.append(row)
+                for fold in fold_definitions:
+                    fold_result = evaluate_fold(
+                        propagation_matrix, fold, labeled_train_offset, num_nodes,
+                        neighbor_indices, node_labels, component_ids, arguments, device,
+                        alpha)
 
-                print("    fold %d: dev acc %.4f  macroF1 %.4f  coverage %.4f  "
-                      "unreachable %d  iters %d%s  %.1fs"
-                      % (fold["fold"], row["dev_accuracy"], row["dev_macro_f1"],
-                         row["component_label_coverage"], row["unreachable_count"],
-                         row["iterations"], "" if row["converged"] else " (NOT CONVERGED)",
-                         row["fold_seconds"]), flush=True)
+                    row = {
+                        "embedding_label": embedding_set["label"],
+                        "beta": embedding_set["beta"],
+                        "k": k,
+                        "fold": fold["fold"],
+                        "edge_purity": all_labeled_edge_purity,
+                        "num_components": number_of_components,
+                        "largest_component_fraction": largest_component_fraction,
+                        "sigma": sigma,
+                        "graph_seconds": graph_seconds,
+                        "num_nodes": num_nodes,
+                        "embeddings_path": embedding_set["path"],
+                    }
+                    row.update(fold_result)
+                    per_fold_rows.append(row)
+                    alpha_rows.append(row)
+
+                # One line per (K, alpha) rather than per fold: the alpha grid
+                # multiplies the fold lines by five and buries the signal.
+                mean_accuracy = sum(r["dev_accuracy"] for r in alpha_rows) / len(alpha_rows)
+                mean_confidence = sum(r["confidence_mean"] for r in alpha_rows) / len(alpha_rows)
+                unconverged = sum(1 for r in alpha_rows if not r["converged"])
+                print("    alpha %-5s: dev acc %.4f  mean confidence %.4f  "
+                      "iters %d  %s  %.1fs"
+                      % (("%.2f" % alpha) if arguments.method == "spread" else "clamp",
+                         mean_accuracy, mean_confidence,
+                         int(sum(r["iterations"] for r in alpha_rows) / len(alpha_rows)),
+                         "converged" if unconverged == 0
+                         else "%d/%d FOLDS NOT CONVERGED" % (unconverged, len(alpha_rows)),
+                         sum(r["fold_seconds"] for r in alpha_rows)), flush=True)
 
             # Free the graph before the next K allocates its own; at K=50 the
             # sparse P alone is a few hundred MB.
@@ -878,12 +973,13 @@ def main():
         del normalized_features
 
     summary_rows = aggregate_rows(
-        per_fold_rows, ["embedding_label", "beta", "k"], AGGREGATED_METRICS)
+        per_fold_rows, ["embedding_label", "beta", "k", "alpha"], AGGREGATED_METRICS)
 
     print_summary_table(summary_rows, beta_sweep_mode)
 
     selection = build_selection(summary_rows, embedding_sets, arguments.k_grid,
-                                arguments.tolerance, arguments.max_iterations)
+                                arguments.tolerance, arguments.max_iterations,
+                                arguments.method, alpha_grid)
 
     for message in selection["warnings"]:
         print("WARNING: %s" % (message,), flush=True)
@@ -891,7 +987,7 @@ def main():
         print("Best K agrees on dev accuracy, edge purity and component coverage, and every "
               "fold converged.", flush=True)
 
-    summary_columns = (["embedding_label", "beta", "k", "num_folds"]
+    summary_columns = (["embedding_label", "beta", "k", "alpha", "num_folds"]
                        + [name + suffix for name in AGGREGATED_METRICS
                           for suffix in ("_mean", "_std")])
     graph_columns = ["embedding_label", "beta", "k", "sigma", "edge_purity",
@@ -905,16 +1001,34 @@ def main():
     # The same numbers as summary.csv, pivoted to embedding x K. In beta-sweep
     # mode this IS the beta x K table the ablation reports; with a single
     # embedding set it is the one-row K curve.
+    #
+    # Both pivots are two-dimensional slices of a three-dimensional grid, so each
+    # has to pin the axis it is not showing. The K pivots are taken at the
+    # globally selected alpha and the alpha pivot at the globally selected K, and
+    # the pinned value is written into the table as its own column so no slice
+    # can be mistaken for a marginal.
+    selected_alpha = selection["best_overall"]["alpha"]
+    selected_k = selection["best_overall"]["k"]
+
     for metric_name, title in (
-        ("dev_accuracy", "mean dev accuracy (beta x K)"),
+        ("dev_accuracy", "mean dev accuracy (beta x K, at alpha=%g)" % selected_alpha),
         ("edge_purity", "mean edge purity (beta x K)"),
         ("component_label_coverage", "mean component label coverage (beta x K)"),
     ):
-        pivot_columns, pivot_table = pivot_rows(summary_rows, metric_name, arguments.k_grid)
+        pivot_columns, pivot_table = pivot_rows(
+            summary_rows, metric_name, arguments.k_grid, selected_alpha)
         write_csv(output_directory / ("pivot_%s.csv" % (metric_name,)),
                   pivot_columns, pivot_table)
         if beta_sweep_mode:
             print_pivot_table(pivot_columns, pivot_table, title)
+
+    if arguments.method == "spread":
+        alpha_columns, alpha_table = pivot_alpha_rows(
+            summary_rows, "dev_accuracy", alpha_grid, selected_k)
+        write_csv(output_directory / "pivot_alpha_dev_accuracy.csv",
+                  alpha_columns, alpha_table)
+        print_pivot_table(alpha_columns, alpha_table,
+                          "mean dev accuracy (beta x alpha, at K=%d)" % selected_k)
 
     selection["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     selection["deterministic"] = not arguments.allow_nondeterministic

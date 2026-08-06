@@ -173,13 +173,27 @@ See what a stage would do before running it:
 ssh bguserver "cd $PROJECT && bash scripts/run_all.sh plan"
 ```
 
-Launch, detached (no tmux available):
+Launch, detached (no tmux available). Use `setsid`, not bare `nohup`:
 
 ```bash
 ssh bguserver "cd $PROJECT && mkdir -p logs && \
-  nohup bash scripts/run_all.sh pretrain > logs/pretrain_\$(date +%Y%m%d_%H%M%S).log 2>&1 & \
-  echo \"started pid \$!\""
+  setsid nohup bash scripts/run_all.sh pretrain > logs/pretrain_\$(date +%Y%m%d_%H%M%S).log 2>&1 < /dev/null & \
+  disown; echo \"started pid \$!\""
 ```
+
+`nohup` alone only makes the job ignore SIGHUP; it stays in the launching shell's
+process group, so a `kill -- -PGID` — or an agent harness tearing down the shell
+it ran the command in — still kills a 30-hour run. `setsid` gives the job its own
+session and process group so nothing else shares a group with it. Verify after
+launching:
+
+```bash
+ssh bguserver "ps -o pid,ppid,pgid,sid,stat,cmd -p <pid>"
+```
+
+Want `PPID 1`, `PGID == SID == PID`, and `Ss` in STAT. A process's session cannot
+be changed after it starts, so a job launched without `setsid` has to be
+restarted to be made safe — check before walking away, not after.
 
 Stages, in order: `prepare` → `pretrain` → `embed` → `sweep` → `probe` → `lock` →
 `seeds` → `cnn`. **`final` is separate, reads the test split, and runs once at the very

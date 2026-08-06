@@ -1,0 +1,145 @@
+{
+  "selection_rule": "highest mean dev accuracy over the 10 official folds, measured on each fold's 200 dev-validation nodes; ties go to the smaller K",
+  "test_split_touched": false,
+  "method": "clamp",
+  "k_grid": [
+    5,
+    10,
+    15,
+    20,
+    30,
+    50
+  ],
+  "alpha_grid": [
+    1.0
+  ],
+  "lp_tolerance": 1e-06,
+  "lp_max_iterations": 3000,
+  "per_embedding": {
+    "beta=0.001": {
+      "beta": 0.001,
+      "embeddings_path": "/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/emb_beta0.001_seed42/embeddings.npy",
+      "best_k": 5,
+      "best_alpha": 1.0,
+      "mean_dev_accuracy": 0.22999999999999998,
+      "std_dev_accuracy": 0.043461349368017654,
+      "mean_dev_macro_f1": 0.1947321197045571,
+      "mean_edge_purity": 0.5995297805642633,
+      "mean_component_label_coverage": 1.0,
+      "mean_unreachable_count": 0.0,
+      "converged_fraction_at_best_k": 1.0,
+      "mean_iterations_at_best_k": 1326.3,
+      "best_k_by_edge_purity": 5,
+      "best_k_by_component_coverage": 5,
+      "disagreements": []
+    },
+    "beta=0.003": {
+      "beta": 0.003,
+      "embeddings_path": "/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/emb_beta0.003_seed42/embeddings.npy",
+      "best_k": 5,
+      "best_alpha": 1.0,
+      "mean_dev_accuracy": 0.22549999999999998,
+      "std_dev_accuracy": 0.04481133289197673,
+      "mean_dev_macro_f1": 0.18954664412388328,
+      "mean_edge_purity": 0.591743119266055,
+      "mean_component_label_coverage": 0.9999542857142856,
+      "mean_unreachable_count": 4.8,
+      "converged_fraction_at_best_k": 1.0,
+      "mean_iterations_at_best_k": 1274.4,
+      "best_k_by_edge_purity": 5,
+      "best_k_by_component_coverage": 10,
+      "disagreements": [
+        "beta=0.003: best dev accuracy at K=5 (0.2255) but best component coverage at K=10 (1.0000 there vs 1.0000 at the selected K)"
+      ]
+    },
+    "beta=0.01": {
+      "beta": 0.01,
+      "embeddings_path": "/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/emb_beta0.01_seed42/embeddings.npy",
+      "best_k": 5,
+      "best_alpha": 1.0,
+      "mean_dev_accuracy": 0.2185,
+      "std_dev_accuracy": 0.03937356699332406,
+      "mean_dev_macro_f1": 0.1809820195332026,
+      "mean_edge_purity": 0.5839028094153378,
+      "mean_component_label_coverage": 0.9999542857142856,
+      "mean_unreachable_count": 4.8,
+      "converged_fraction_at_best_k": 1.0,
+      "mean_iterations_at_best_k": 1200.1,
+      "best_k_by_edge_purity": 5,
+      "best_k_by_component_coverage": 10,
+      "disagreements": [
+        "beta=0.01: best dev accuracy at K=5 (0.2185) but best component coverage at K=10 (1.0000 there vs 1.0000 at the selected K)"
+      ]
+    },
+    "beta=0.03": {
+      "beta": 0.03,
+      "embeddings_path": "/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/emb_beta0.03_seed42/embeddings.npy",
+      "best_k": 5,
+      "best_alpha": 1.0,
+      "mean_dev_accuracy": 0.21999999999999997,
+      "std_dev_accuracy": 0.03719318934070234,
+      "mean_dev_macro_f1": 0.18130372694625116,
+      "mean_edge_purity": 0.596786534047437,
+      "mean_component_label_coverage": 0.9999542857142856,
+      "mean_unreachable_count": 4.8,
+      "converged_fraction_at_best_k": 1.0,
+      "mean_iterations_at_best_k": 1201.4,
+      "best_k_by_edge_purity": 5,
+      "best_k_by_component_coverage": 10,
+      "disagreements": [
+        "beta=0.03: best dev accuracy at K=5 (0.2200) but best component coverage at K=10 (1.0000 there vs 1.0000 at the selected K)"
+      ]
+    },
+    "beta=0": {
+      "beta": 0.0,
+      "embeddings_path": "/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/emb_beta0.0_seed42/embeddings.npy",
+      "best_k": 5,
+      "best_alpha": 1.0,
+      "mean_dev_accuracy": 0.21949999999999997,
+      "std_dev_accuracy": 0.036700741742428655,
+      "mean_dev_macro_f1": 0.18685431552184986,
+      "mean_edge_purity": 0.5960784313725489,
+      "mean_component_label_coverage": 0.9999542857142856,
+      "mean_unreachable_count": 4.8,
+      "converged_fraction_at_best_k": 1.0,
+      "mean_iterations_at_best_k": 1247.1,
+      "best_k_by_edge_purity": 5,
+      "best_k_by_component_coverage": 10,
+      "disagreements": [
+        "beta=0: best dev accuracy at K=5 (0.2195) but best component coverage at K=10 (1.0000 there vs 1.0000 at the selected K)"
+      ]
+    },
+    "beta=0.1": {
+      "beta": 0.1,
+      "embeddings_path": "/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/emb_beta0.1_seed42/embeddings.npy",
+      "best_k": 5,
+      "best_alpha": 1.0,
+      "mean_dev_accuracy": 0.23600000000000004,
+      "std_dev_accuracy": 0.03116265571338732,
+      "mean_dev_macro_f1": 0.19991123617044904,
+      "mean_edge_purity": 0.6323076923076922,
+      "mean_component_label_coverage": 1.0,
+      "mean_unreachable_count": 0.0,
+      "converged_fraction_at_best_k": 1.0,
+      "mean_iterations_at_best_k": 1133.0,
+      "best_k_by_edge_purity": 5,
+      "best_k_by_component_coverage": 5,
+      "disagreements": []
+    }
+  },
+  "best_overall": {
+    "embedding_label": "beta=0.1",
+    "k": 5,
+    "alpha": 1.0,
+    "mean_dev_accuracy": 0.23600000000000004,
+    "std_dev_accuracy": 0.03116265571338732
+  },
+  "warnings": [
+    "beta=0.003: best dev accuracy at K=5 (0.2255) but best component coverage at K=10 (1.0000 there vs 1.0000 at the selected K)",
+    "beta=0.01: best dev accuracy at K=5 (0.2185) but best component coverage at K=10 (1.0000 there vs 1.0000 at the selected K)",
+    "beta=0.03: best dev accuracy at K=5 (0.2200) but best component coverage at K=10 (1.0000 there vs 1.0000 at the selected K)",
+    "beta=0: best dev accuracy at K=5 (0.2195) but best component coverage at K=10 (1.0000 there vs 1.0000 at the selected K)"
+  ],
+  "generated_at": "2026-08-05T13:06:54",
+  "deterministic": true
+}

@@ -63,14 +63,35 @@ Stages, in order: `prepare` → `pretrain` → `embed` → `sweep` → `probe` �
 → `seeds` → `cnn`, and then `final` on its own at the very end.
 
 **There is no tmux on this box.** A dropped SSH connection kills a foreground
-job, so every long stage must be detached:
+job, so every long stage must be detached — with `setsid`, not just `nohup`:
 
 ```bash
 mkdir -p logs
-nohup bash scripts/run_all.sh pretrain > logs/pretrain.log 2>&1 &
+setsid nohup bash scripts/run_all.sh pretrain > logs/pretrain.log 2>&1 < /dev/null &
+disown
 echo "pid $!"
 tail -f logs/pretrain.log
 ```
+
+`nohup` alone is **not** enough. It only makes the job ignore SIGHUP, and the job
+stays in the launching shell's process group — so anything that signals that
+group (an agent harness tearing down its shell on exit, a `kill -- -PGID`, an
+editor's terminal pane closing) still takes the run down, 30 hours in. `setsid`
+puts the job in its own session and process group from the start, so there is no
+shared group left to signal; `< /dev/null` detaches stdin so it can never block
+on a read; `disown` drops it from the shell's job table.
+
+This cannot be retrofitted. A process's session is fixed once it is running, so
+a job launched the wrong way has to be restarted to be made safe. Check an
+existing run with:
+
+```bash
+ps -o pid,ppid,pgid,sid,stat,cmd -p <pid>
+```
+
+`PPID 1` plus `PGID == SID == PID` plus `Ss` in STAT means it is a session leader
+in its own group and is genuinely independent. If `PGID` matches some other
+shell's pid, it is not.
 
 Check on a run:
 

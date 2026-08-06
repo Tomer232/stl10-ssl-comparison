@@ -218,6 +218,128 @@ def propagate(propagation_matrix, initial_F, labeled_indices, labeled_onehot,
     return current_F, iterations_run, final_delta
 
 
+def spread(propagation_matrix, initial_F, labeled_indices, labeled_onehot,
+           alpha, max_iterations, tolerance):
+    """Iterate F <- alpha P F + (1 - alpha) Y. Zhou label spreading, soft clamp.
+
+    WHY THIS EXISTS. `propagate` above implements Zhu-Ghahramani hard-clamped
+    propagation, and on this graph its fixed point is very nearly useless. With
+    800 seeds among 105000 nodes the walk mixes long before it is absorbed, so
+    the absorption probabilities stop depending on where the walk started: at
+    convergence the mean winning-class share is 0.155 against a uniform floor of
+    0.10, and mean dev accuracy over the ten folds falls to 0.23 at K=15. It is
+    not a bug -- the iteration reaches its fixed point correctly, to a max delta
+    of 6e-8 -- the fixed point is simply flat. Measured on the way there, dev
+    accuracy peaks at 0.401 around iteration 8 and then decays monotonically into
+    that flat solution.
+
+    The `(1 - alpha) Y` restart term is what fixes it. Y is the seed matrix --
+    one-hot on labeled rows, zero elsewhere, i.e. exactly the `initial_F` that
+    `initial_label_matrix` builds -- and re-injecting it at every step means a
+    walk that wanders too far keeps being pulled back to where it started. The
+    fixed point is
+
+        F* = (1 - alpha) (I - alpha P)^-1 Y
+
+    the discounted random-walk-with-restart score, which stays local and stays
+    informative. Setting alpha = 1 recovers the degenerate flat solution, so
+    alpha is the knob that trades locality against reach.
+
+    NO HARD CLAMP HERE, deliberately. Zhou's formulation soft-clamps: the seed
+    rows are updated like every other row and held near their one-hot value by
+    the restart term rather than pinned to it. `labeled_onehot` is therefore used
+    to build Y, not to overwrite rows mid-iteration. That also means a seed row
+    can end up slightly contested by its neighbours, which is the intended
+    behaviour -- it lets the method tolerate a mislabeled seed instead of
+    propagating it with full confidence forever.
+
+    CONVERGENCE. `alpha P` has spectral radius alpha < 1, so the iteration is a
+    contraction and converges geometrically at rate alpha -- unconditionally, no
+    reliance on the graph's structure. The cost is that the iteration count
+    needed scales as log(tolerance) / log(alpha): about 130 steps at alpha=0.9
+    but about 1375 at alpha=0.99. Pass `max_iterations` accordingly; the caller
+    gets `iterations_run` and `final_delta` back and should check them, exactly
+    as with `propagate`.
+
+    A NOTE ON SCALE. Row masses here are much smaller than 1 -- a row's total is
+    the expected discounted number of visits to seed nodes, which for a distant
+    node is a small number. That is harmless: `pseudo_labels_from` takes an
+    argmax and normalizes confidence by the row sum, and both are invariant to
+    the overall scale. It does mean an absolute `tolerance` is a tighter test
+    here than it looks.
+
+    Returns (F, iterations_run, final_delta), same contract as `propagate`.
+    """
+    if propagation_matrix.dim() != 2:
+        raise ValueError(
+            "propagation_matrix must be [N, N], got shape " + str(tuple(propagation_matrix.shape))
+        )
+    if propagation_matrix.shape[0] != propagation_matrix.shape[1]:
+        raise ValueError(
+            "propagation_matrix must be square, got shape " + str(tuple(propagation_matrix.shape))
+        )
+    if initial_F.dim() != 2:
+        raise ValueError("initial_F must be [N, C], got shape " + str(tuple(initial_F.shape)))
+    if propagation_matrix.shape[0] != initial_F.shape[0]:
+        raise ValueError(
+            "propagation_matrix has " + str(propagation_matrix.shape[0]) + " nodes but "
+            "initial_F has " + str(initial_F.shape[0]) + " rows"
+        )
+
+    restart_weight = float(alpha)
+    if not 0.0 < restart_weight < 1.0:
+        raise ValueError(
+            "alpha must lie strictly in (0, 1) -- alpha=1 is the hard-clamped "
+            "iteration `propagate` already implements and its fixed point is flat, "
+            "alpha=0 never propagates at all. Got " + str(restart_weight)
+        )
+
+    device = propagation_matrix.device
+    dtype = propagation_matrix.dtype
+
+    index_tensor = _as_long_tensor(labeled_indices, device=device)
+    clamp_target = labeled_onehot.to(device=device, dtype=dtype)
+    if clamp_target.shape[0] != index_tensor.numel():
+        raise ValueError(
+            "labeled_onehot must have one row per labeled index, got "
+            + str(clamp_target.shape[0]) + " rows for " + str(index_tensor.numel()) + " indices"
+        )
+
+    # Y, the restart distribution. Built from the seeds rather than trusting the
+    # caller's initial_F to be exactly the seed matrix, so a caller who warm-starts
+    # the iteration from some other F0 still restarts towards the right thing.
+    restart_F = torch.zeros_like(initial_F, device=device, dtype=dtype)
+    if index_tensor.numel() > 0:
+        restart_F[index_tensor] = clamp_target
+    restart_term = (1.0 - restart_weight) * restart_F
+
+    # Same aliasing hazard as in `propagate`: .to() is a no-op when device and
+    # dtype already match, and we must not write into the caller's array.
+    current_F = initial_F.to(device=device, dtype=dtype)
+    if current_F is initial_F:
+        current_F = current_F.clone()
+
+    iterations_run = 0
+    final_delta = float("inf")
+
+    for _ in range(int(max_iterations)):
+        if propagation_matrix.is_sparse:
+            next_F = torch.sparse.mm(propagation_matrix, current_F)
+        else:
+            next_F = torch.matmul(propagation_matrix, current_F)
+
+        next_F = restart_weight * next_F + restart_term
+
+        final_delta = float((next_F - current_F).abs().max().item())
+        current_F = next_F
+        iterations_run += 1
+
+        if final_delta < tolerance:
+            break
+
+    return current_F, iterations_run, final_delta
+
+
 def pseudo_labels_from(F, minimum_mass=0.0, epsilon=1e-12):
     """Turn the converged F into (pseudo_labels, confidence).
 

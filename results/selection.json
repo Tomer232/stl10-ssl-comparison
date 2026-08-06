@@ -1,0 +1,12 @@
+{
+  "locked_at": "2026-08-06T00:24:09",
+  "note": "chosen on the 200 held-out development-validation images of each official fold, before the test split was opened",
+  "protocol_seed": 42,
+  "selected_alpha": 0.9,
+  "selected_beta": 0.1,
+  "selected_c": 0.1,
+  "selected_k": 15,
+  "selected_lp_method": "spread",
+  "selection_split": "development",
+  "test_seen_during_selection": false
+}

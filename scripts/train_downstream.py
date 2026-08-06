@@ -784,9 +784,20 @@ def propagate_fold_pseudo_labels(propagation_matrix, official_folds, development
     # rows, so the two cannot drift apart.
     labeled_onehot = initial_F[seed_nodes]
 
-    final_F, iterations, final_delta = labelprop.propagate(
-        propagation_matrix, initial_F, seed_nodes, labeled_onehot,
-        arguments.lp_max_iterations, arguments.lp_tolerance)
+    # Must match whatever scripts/sweep_knn_lp.py selected K on, or the CNN is
+    # trained on pseudo-labels from a different algorithm than the one the sweep
+    # justified. `spread` is the default for the reason documented in
+    # labelprop.spread: hard clamping converges to a nearly flat fixed point on
+    # this graph (mean winning-class share 0.155 against a 0.10 floor), so the
+    # pseudo-labels it produces are close to noise.
+    if arguments.lp_method == "spread":
+        final_F, iterations, final_delta = labelprop.spread(
+            propagation_matrix, initial_F, seed_nodes, labeled_onehot,
+            arguments.lp_alpha, arguments.lp_max_iterations, arguments.lp_tolerance)
+    else:
+        final_F, iterations, final_delta = labelprop.propagate(
+            propagation_matrix, initial_F, seed_nodes, labeled_onehot,
+            arguments.lp_max_iterations, arguments.lp_tolerance)
 
     if final_delta >= arguments.lp_tolerance:
         log("  WARNING: propagation hit the " + str(arguments.lp_max_iterations)
@@ -1115,6 +1126,13 @@ def parse_arguments(argv):
                         help="label-propagation iteration cap")
     parser.add_argument("--lp-tolerance", type=float, default=config.LP_TOLERANCE,
                         help="convergence tolerance on max|F_next - F|")
+    parser.add_argument("--lp-method", choices=("spread", "clamp"), default="spread",
+                        help="spread (default): Zhou label spreading. clamp: "
+                             "Zhu-Ghahramani hard clamping, whose fixed point is nearly "
+                             "flat on this graph -- kept only to reproduce the negative "
+                             "result. MUST match what sweep_knn_lp.py selected K on.")
+    parser.add_argument("--lp-alpha", type=float, default=config.LP_ALPHA,
+                        help="restart weight for --lp-method spread; ignored by clamp")
     parser.add_argument("--encoder-checkpoint", default=None,
                         help="VAE (or trunk) checkpoint to initialise the CNN's encoder")
     parser.add_argument("--confidence-weighting", action="store_true",

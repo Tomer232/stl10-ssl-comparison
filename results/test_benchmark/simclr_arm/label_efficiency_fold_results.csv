@@ -1,0 +1,11 @@
+fold,labeled_train_size,c,accuracy,f1_macro,precision_macro,log_loss,classifier_path
+1,1000,0.10000000,0.80012500,0.80013041,0.80073391,0.61367285,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_01.joblib
+2,1000,0.10000000,0.79025000,0.78981997,0.79055306,0.62535655,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_02.joblib
+3,1000,0.10000000,0.79050000,0.79022742,0.79037672,0.62270641,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_03.joblib
+4,1000,0.10000000,0.79825000,0.79809957,0.79936462,0.58987164,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_04.joblib
+5,1000,0.10000000,0.78737500,0.78851358,0.79097999,0.64968926,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_05.joblib
+6,1000,0.10000000,0.78812500,0.78888420,0.79060395,0.63111144,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_06.joblib
+7,1000,0.10000000,0.79350000,0.79365200,0.79411246,0.60293317,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_07.joblib
+8,1000,0.10000000,0.79662500,0.79682211,0.79711031,0.62510204,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_08.joblib
+9,1000,0.10000000,0.79950000,0.79926908,0.79997698,0.58428794,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_09.joblib
+10,1000,0.10000000,0.78862500,0.78894481,0.78963403,0.62964737,/home/labadmin/lab/Tomer_Karmazin/stl10-ssl-comparison/runs/simclr_seed42/results/20260805_124142_984352/final_benchmark/linear_classifiers/fold_10.joblib

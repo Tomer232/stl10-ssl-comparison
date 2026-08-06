@@ -66,6 +66,14 @@ SEED="${SEED:-42}"
 # directory. Set SEEDS="43 44" to skip the repeat.
 SEEDS="${SEEDS:-42 43 44}"
 
+# Label propagation: which algorithm the locked configuration uses, and its
+# restart weight. Defaults come from src/config.py so there is one source of
+# truth. `spread` because hard clamping converges to a nearly flat fixed point on
+# this graph -- see the comment on config.LP_ALPHA and the docstring of
+# labelprop.spread.
+SELECTED_ALPHA="${SELECTED_ALPHA:-0.9}"
+SELECTED_LP_METHOD="${SELECTED_LP_METHOD:-spread}"
+
 # The beta grid, from config.BETA_GRID. 0.0 is the plain-autoencoder control:
 # it isolates how much of the result comes from the *variational* part rather
 # than from reconstruction alone. Nothing above 0.1 -- by beta = 1 the KL has
@@ -377,21 +385,32 @@ Then lock them in, e.g.
   SELECTED_BETA=0.01 SELECTED_K=15 SELECTED_C=10 \\
       bash scripts/run_all.sh lock
 
+SELECTED_ALPHA defaults to $SELECTED_ALPHA and SELECTED_LP_METHOD to
+$SELECTED_LP_METHOD. Override them if the sweep selected something else -- read
+  $(sweep_dir "$SEED")/pivot_alpha_dev_accuracy.csv
+
 LOCK
         exit 1
     fi
 
-    "$PYTHON" - "$SELECTION_PATH" "$SELECTED_BETA" "$SELECTED_K" "$SELECTED_C" "$SEED" <<'PY'
+    "$PYTHON" - "$SELECTION_PATH" "$SELECTED_BETA" "$SELECTED_K" "$SELECTED_C" "$SEED" \
+        "$SELECTED_ALPHA" "$SELECTED_LP_METHOD" <<'PY'
 import datetime
 import json
 import sys
 
-path, beta, k, c, seed = sys.argv[1:6]
+path, beta, k, c, seed, alpha, lp_method = sys.argv[1:8]
 
 selection = {
     "selected_beta": float(beta),
     "selected_k": int(k),
     "selected_c": float(c),
+    # The label-propagation method and its restart weight are part of the locked
+    # configuration: scripts/train_downstream.py --mode cnn propagates the
+    # pseudo-labels itself, and if it used a different method than the sweep
+    # selected K on, the CNN row would not correspond to any measured dev number.
+    "selected_alpha": float(alpha),
+    "selected_lp_method": lp_method,
     "selection_split": "development",
     "test_seen_during_selection": False,
     "locked_at": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -477,10 +496,18 @@ stage_seeds() {
 stage_cnn() {
     require_file "$SELECTION_PATH" "run the lock first: bash scripts/run_all.sh lock"
 
-    local beta k embeddings vae
+    local beta k lp_method lp_alpha embeddings vae
     beta="$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["selected_beta"])' \
         "$SELECTION_PATH")"
     k="$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1]))["selected_k"])' \
+        "$SELECTION_PATH")"
+    # Read from the lock, not from the environment: the CNN must propagate with
+    # the same algorithm the sweep selected K on, and the lock is the record of
+    # what that was. Falling back to the config defaults keeps an older
+    # selection.json (written before these keys existed) working.
+    lp_method="$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("selected_lp_method","spread"))' \
+        "$SELECTION_PATH")"
+    lp_alpha="$("$PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("selected_alpha",0.9))' \
         "$SELECTION_PATH")"
 
     embeddings="$(embed_dir "$beta" "$SEED")/embeddings.npy"
@@ -505,6 +532,8 @@ stage_cnn() {
         --mode cnn \
         --embeddings "$embeddings" \
         --k "$k" \
+        --lp-method "$lp_method" \
+        --lp-alpha "$lp_alpha" \
         --encoder-checkpoint "$vae" \
         --splits "$SPLITS_PATH" \
         --normalization "$NORMALIZATION_PATH" \
