@@ -29,7 +29,7 @@ password, and the box is shared. Read "Ground rules" before doing anything.
 
 | | |
 |---|---|
-| SSH alias | `bguserver` (already in `~/.ssh/config` → `[REDACTED — see ~/.ssh/config]`, Tailscale) |
+| SSH alias | `bguserver` — resolved from `~/.ssh/config`, reached over Tailscale. The user and address live there, not here: this repo is public. |
 | OS | Ubuntu 24.04.3, kernel 6.14, bare metal |
 | GPU | 1× RTX 5090, 32 GB VRAM, driver 580.126.09, CUDA 13.0. Blackwell/sm_120 → **cu128 is the minimum** |
 | CPU / RAM | Intel Core Ultra 7 265K, 20 cores, 125 GiB RAM |
@@ -95,9 +95,9 @@ on a shared box.
 
 ### Passwordless SSH
 
-Right now `ssh bguserver` prompts for a password every time, which makes automated runs
-painful. One-time fix, run by Tomer (the `ssh-copy-id` step needs the password
-interactively, so it cannot be done from a tool call):
+If `ssh bguserver` still prompts interactively, set up key auth — it makes automated runs
+possible and is worth doing before anything long. One-time, run by Tomer (`ssh-copy-id`
+needs the password interactively, so it cannot be done from a tool call):
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/bguserver_tomer -C "tomer-laptop"
@@ -105,8 +105,8 @@ ssh-copy-id -i ~/.ssh/bguserver_tomer.pub bguserver
 ```
 
 then add `IdentityFile ~/.ssh/bguserver_tomer` to the `Host bguserver` block in
-`~/.ssh/config`. The shared `authorized_keys` already holds one key (`[REDACTED]`); this
-appends a second, it does not replace anything.
+`~/.ssh/config`. `ssh-copy-id` appends to `authorized_keys`; it does not replace what is
+already there.
 
 ### Clone and bootstrap
 
