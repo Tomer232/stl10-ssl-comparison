@@ -1,0 +1,113 @@
+{
+  "folds": 10,
+  "gap_like_for_like": 0.4294375,
+  "rows": {
+    "contrastive_probe": {
+      "accuracy": {
+        "folds": 10,
+        "max": 0.789875,
+        "mean": 0.785825,
+        "min": 0.7805,
+        "std": 0.0033004629304925755
+      },
+      "f1_macro": {
+        "folds": 10,
+        "max": 0.7896946938440803,
+        "mean": 0.7857339796910233,
+        "min": 0.7800260124993981,
+        "std": 0.003612055926660958
+      },
+      "log_loss": {
+        "folds": 10,
+        "max": 0.6769871648805413,
+        "mean": 0.6540387211100003,
+        "min": 0.627929109735359,
+        "std": 0.01654806743665657
+      },
+      "precision_macro": {
+        "folds": 10,
+        "max": 0.7909894890411848,
+        "mean": 0.786505775698852,
+        "min": 0.7801414876559309,
+        "std": 0.0038012018706767227
+      }
+    },
+    "generative_cnn": {
+      "accuracy": {
+        "folds": 10,
+        "max": 0.415875,
+        "mean": 0.40856250000000005,
+        "min": 0.4015,
+        "std": 0.005233522422273974
+      },
+      "f1_macro": {
+        "folds": 10,
+        "max": 0.40510604669096234,
+        "mean": 0.39452996043849264,
+        "min": 0.38615668079633825,
+        "std": 0.006350420339559168
+      },
+      "log_loss": {
+        "folds": 10,
+        "max": 14.402218688778062,
+        "mean": 13.566376566580008,
+        "min": 12.67603469036331,
+        "std": 0.547922573638443
+      },
+      "precision_macro": {
+        "folds": 10,
+        "max": 0.4061496823616798,
+        "mean": 0.3962688755152424,
+        "min": 0.3891065743226001,
+        "std": 0.006291213605371959
+      }
+    },
+    "generative_probe": {
+      "accuracy": {
+        "folds": 10,
+        "max": 0.364625,
+        "mean": 0.35638749999999997,
+        "min": 0.348,
+        "std": 0.006043376194920626
+      },
+      "f1_macro": {
+        "folds": 10,
+        "max": 0.36889735768087223,
+        "mean": 0.35896556615009423,
+        "min": 0.3510561096007168,
+        "std": 0.006805882988894664
+      },
+      "log_loss": {
+        "folds": 10,
+        "max": 2.887642931353882,
+        "mean": 2.8211559000033932,
+        "min": 2.7466523568456855,
+        "std": 0.0435633775305559
+      },
+      "precision_macro": {
+        "folds": 10,
+        "max": 0.3752817940135188,
+        "mean": 0.362893603587306,
+        "min": 0.3536372571548817,
+        "std": 0.008274328551532777
+      }
+    }
+  },
+  "seed": 42,
+  "selection": {
+    "note": "chosen on the 200 held-out development-validation images of each official fold, before the test split was opened",
+    "seed": 42,
+    "selected_alpha": 0.8,
+    "selected_beta": 0.1,
+    "selected_k": 20,
+    "selected_lp_method": "spread",
+    "selected_policy": "P4_full_policy",
+    "selection_split": "development",
+    "simclr_c": 0.1,
+    "test_seen_during_selection": false,
+    "vae_c": 0.1
+  },
+  "selection_sha256": "f8665f883a62ccc4b4620cf1f9d47b81d512eda27b7076cea686eb3d9e2f1256",
+  "std_convention": "sample standard deviation, ddof = 1, over the folds",
+  "test_images": 8000
+}

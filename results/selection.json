@@ -1,0 +1,13 @@
+{
+  "note": "chosen on the 200 held-out development-validation images of each official fold, before the test split was opened",
+  "seed": 42,
+  "selected_alpha": 0.8,
+  "selected_beta": 0.1,
+  "selected_k": 20,
+  "selected_lp_method": "spread",
+  "selected_policy": "P4_full_policy",
+  "selection_split": "development",
+  "simclr_c": 0.1,
+  "test_seen_during_selection": false,
+  "vae_c": 0.1
+}
