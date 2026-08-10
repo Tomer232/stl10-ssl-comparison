@@ -1,0 +1,5 @@
+policy,role,crop_probability,flip_probability,color_probability,grayscale_probability,blur_probability,order
+P1,BASELINE,1.00000000,0.00000000,0.80000000,0.00000000,0.00000000,crop -> color -> normalize
+P2,blur change,1.00000000,0.00000000,0.80000000,0.00000000,0.50000000,crop -> color -> blur -> normalize
+P3,flip change,1.00000000,0.50000000,0.80000000,0.00000000,0.00000000,crop -> flip -> color -> normalize
+P4,full policy,1.00000000,0.50000000,0.80000000,0.20000000,0.50000000,crop -> flip -> color -> gray -> blur -> normalize

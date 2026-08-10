@@ -1,35 +1,35 @@
 {
   "folds": 10,
-  "gap_like_for_like": 0.4294375,
+  "gap_like_for_like": 0.43689999999999996,
   "rows": {
     "contrastive_probe": {
       "accuracy": {
         "folds": 10,
-        "max": 0.789875,
-        "mean": 0.785825,
-        "min": 0.7805,
-        "std": 0.0033004629304925755
+        "max": 0.799375,
+        "mean": 0.7933375,
+        "min": 0.787875,
+        "std": 0.004179999501594868
       },
       "f1_macro": {
         "folds": 10,
-        "max": 0.7896946938440803,
-        "mean": 0.7857339796910233,
-        "min": 0.7800260124993981,
-        "std": 0.003612055926660958
+        "max": 0.7992581536459961,
+        "mean": 0.7931949359827895,
+        "min": 0.786873115444628,
+        "std": 0.004283675545289423
       },
       "log_loss": {
         "folds": 10,
-        "max": 0.6769871648805413,
-        "mean": 0.6540387211100003,
-        "min": 0.627929109735359,
-        "std": 0.01654806743665657
+        "max": 0.6392714261668602,
+        "mean": 0.6194157117737389,
+        "min": 0.5932316293838173,
+        "std": 0.016503544932953838
       },
       "precision_macro": {
         "folds": 10,
-        "max": 0.7909894890411848,
-        "mean": 0.786505775698852,
-        "min": 0.7801414876559309,
-        "std": 0.0038012018706767227
+        "max": 0.7996108077949724,
+        "mean": 0.7938451443874188,
+        "min": 0.7876518432685107,
+        "std": 0.004215664542178904
       }
     },
     "generative_cnn": {
@@ -65,49 +65,51 @@
     "generative_probe": {
       "accuracy": {
         "folds": 10,
-        "max": 0.364625,
-        "mean": 0.35638749999999997,
+        "max": 0.36475,
+        "mean": 0.3564375000000001,
         "min": 0.348,
-        "std": 0.006043376194920626
+        "std": 0.006058238765882748
       },
       "f1_macro": {
         "folds": 10,
-        "max": 0.36889735768087223,
-        "mean": 0.35896556615009423,
+        "max": 0.36904585242820775,
+        "mean": 0.3590181744103358,
         "min": 0.3510561096007168,
-        "std": 0.006805882988894664
+        "std": 0.006813276054407335
       },
       "log_loss": {
         "folds": 10,
-        "max": 2.887642931353882,
-        "mean": 2.8211559000033932,
-        "min": 2.7466523568456855,
-        "std": 0.0435633775305559
+        "max": 2.8876272541574255,
+        "mean": 2.821148547026996,
+        "min": 2.7466458880382243,
+        "std": 0.04356292485407214
       },
       "precision_macro": {
         "folds": 10,
-        "max": 0.3752817940135188,
-        "mean": 0.362893603587306,
+        "max": 0.37548915926661564,
+        "mean": 0.36295216916149714,
         "min": 0.3536372571548817,
-        "std": 0.008274328551532777
+        "std": 0.008280318374130508
       }
     }
   },
   "seed": 42,
   "selection": {
-    "note": "chosen on the 200 held-out development-validation images of each official fold, before the test split was opened",
+    "note": "Both arms select their checkpoint and their C from periodic development probes under one schedule; the test split was not opened during selection",
     "seed": 42,
     "selected_alpha": 0.8,
     "selected_beta": 0.1,
     "selected_k": 20,
     "selected_lp_method": "spread",
     "selected_policy": "P4_full_policy",
+    "selected_simclr_epoch": 100,
+    "selected_vae_epoch": 100,
     "selection_split": "development",
     "simclr_c": 0.1,
     "test_seen_during_selection": false,
     "vae_c": 0.1
   },
-  "selection_sha256": "f8665f883a62ccc4b4620cf1f9d47b81d512eda27b7076cea686eb3d9e2f1256",
+  "selection_sha256": "dbae40b001aa9b2db43cf064c48d7587a48a33ebbbbd51ba5eea80d227f93dd6",
   "std_convention": "sample standard deviation, ddof = 1, over the folds",
   "test_images": 8000
 }

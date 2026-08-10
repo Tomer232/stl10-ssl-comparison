@@ -1,0 +1,5 @@
+policy_name,policy,run_status,epochs_planned,epochs_completed,optimizer_steps,checkpoint_available,best_epoch,optimizer_steps_to_best,minimum_train_loss,epoch_of_minimum_train_loss,final_train_loss,best_dev_log_loss,best_dev_log_loss_sd,best_dev_accuracy,best_dev_accuracy_sd,best_dev_f1_macro,best_dev_f1_macro_sd,selected_c
+P1_crop_color,P1,completed,100,100,39000,True,100,39000,1.80097232,95,1.80161462,0.93206646,0.07714048,0.69550000,0.02629427,0.69508820,0.02567767,0.10000000
+P2_crop_color_blur,P2,completed,100,100,39000,True,100,39000,1.85161634,100,1.85161634,0.96740022,0.11375593,0.68100000,0.04771443,0.68055451,0.04440131,0.10000000
+P3_crop_flip_color,P3,completed,100,100,39000,True,100,39000,1.81286497,99,1.81396802,0.95340130,0.08609893,0.69600000,0.02319004,0.69480553,0.02381312,0.10000000
+P4_full_policy,P4,completed,100,100,39000,True,100,39000,1.99151433,97,1.99339971,0.63867467,0.06297530,0.78200000,0.02551688,0.78251099,0.02587598,0.10000000
